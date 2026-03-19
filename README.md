@@ -13,11 +13,17 @@ The Rust toolchain is powerful but fragmented. You need `rustup`, `cargo`, `clip
 - **Cross-compilation** — `rx build --target <triple>` for easy cross-compiling
 - **Workspace orchestration** — dependency-aware parallel execution across workspace members
 - **Unified commands** — `rx test` uses nextest when available, `rx lint` runs clippy with strict defaults, `rx fmt` runs rustfmt
-- **Project config** — `rx.toml` controls build, test, lint, fmt, watch, scripts, and env vars
+- **One-command CI** — `rx ci` runs your full pipeline locally (fmt, clippy, test, build)
+- **Auto-fix everything** — `rx fix` applies compiler suggestions, clippy fixes, and formatting in one step
+- **Project config** — `rx.toml` controls build, test, lint, fmt, watch, scripts, and env vars with validation
 - **Colored output** — clear, color-coded status messages with timing and progress indicators
 - **Environment checks** — `rx doctor` verifies your toolchain is ready
+- **Dependency health** — `rx outdated`, `rx audit`, `rx tree` for full dependency visibility
+- **Binary size analysis** — `rx size` shows binary size with optional cargo-bloat breakdown
 - **Graceful signals** — Ctrl+C handling for clean shutdown
 - **Actionable errors** — every failure includes hints on how to fix it
+- **Lazy config loading** — commands that don't need config skip loading it for faster startup
+- **Self-updating** — `rx self-update` updates rx to the latest version
 
 ## Install
 
@@ -69,14 +75,22 @@ rx run
 | `rx build` | Build with fast linker + caching |
 | `rx build --target <triple>` | Cross-compile for a target triple |
 | `rx run [-- args...]` | Build and run (args pass through to binary) |
+| `rx check` | Type-check without building (fast feedback) |
 | `rx test` | Run tests (nextest if available) |
 | `rx fmt` | Format code |
 | `rx lint` | Lint with clippy |
+| `rx fix` | Auto-fix everything (compiler + clippy + fmt) |
+| `rx ci` | Run full CI pipeline locally |
 | `rx bench` | Run benchmarks |
 | `rx expand` | Expand macros (requires cargo-expand) |
 | `rx publish` | Publish crate(s) to crates.io |
+| `rx size` | Show binary size (+ cargo-bloat breakdown) |
+| `rx tree` | Show dependency tree |
+| `rx outdated` | Check for outdated dependencies |
+| `rx audit` | Audit dependencies for security vulnerabilities |
 | `rx doctor` | Check your development environment |
 | `rx upgrade` | Update toolchains and dependencies |
+| `rx self-update` | Update rx to the latest version |
 | `rx completions <shell>` | Generate shell completions |
 | `rx pkg add/remove/upgrade/list` | Manage dependencies |
 | `rx toolchain install/use/list/update` | Manage Rust toolchains |
@@ -101,7 +115,7 @@ rx --verbose test             # show timing and debug info
 
 ## Configuration
 
-Run `rx init` to generate an `rx.toml`. Smart defaults are applied based on your project — workspaces get a `ci` script, and if `mold` is available it's set as the default linker.
+Run `rx init` to generate an `rx.toml`. Smart defaults are applied based on your project — workspaces get a `ci` script, and if `mold` is available it's set as the default linker. Unknown keys in `rx.toml` produce a warning so typos don't silently fail.
 
 ```toml
 [build]
@@ -133,6 +147,78 @@ RUST_BACKTRACE = "1"
 ```
 
 Config is resolved by merging `~/.rx/config.toml` (global) with the project's `rx.toml`. Project values override global.
+
+## Workflow commands
+
+### rx check — fast type-checking
+
+```sh
+rx check                    # type-check the whole project
+rx check --package mylib    # type-check a single package
+```
+
+Runs `cargo check` with your configured linker and job count. Faster than a full build when you just want to verify your code compiles.
+
+### rx fix — auto-fix everything
+
+```sh
+rx fix
+```
+
+Applies fixes in three passes:
+1. **Compiler suggestions** — `cargo fix` for edition migrations, unused imports, etc.
+2. **Clippy fixes** — `cargo clippy --fix` with your configured lint severity
+3. **Formatting** — `cargo fmt` to clean up any remaining style issues
+
+### rx ci — local CI pipeline
+
+```sh
+rx ci
+```
+
+Runs the full CI pipeline locally before pushing. If a `ci` script is defined in `rx.toml`, that's used. Otherwise the default pipeline runs: `fmt --check` → `clippy` → `test` → `build`. Fails fast on the first error with a clear message about which step failed.
+
+### rx size — binary size analysis
+
+```sh
+rx size                # debug build size
+rx size --release      # release build size
+```
+
+Builds the project and reports the binary size. If `cargo-bloat` is installed, also shows a breakdown of the top crate contributions by size.
+
+### rx tree — dependency tree
+
+```sh
+rx tree                        # full dependency tree
+rx tree --duplicates           # show only duplicate dependencies
+rx tree --depth 2              # limit tree depth
+rx tree --duplicates --depth 3 # combine flags
+```
+
+### rx outdated — check for updates
+
+```sh
+rx outdated
+```
+
+Uses `cargo-outdated` for a detailed report if installed, otherwise falls back to `cargo update --dry-run` to show what would change.
+
+### rx audit — security vulnerabilities
+
+```sh
+rx audit
+```
+
+Runs `cargo-audit` to check all dependencies against the RustSec advisory database. Requires `cargo install cargo-audit`.
+
+### rx self-update
+
+```sh
+rx self-update
+```
+
+Updates rx to the latest release. Uses the install script via `curl` when available, falls back to `cargo install --git`.
 
 ## Cache
 
@@ -242,12 +328,20 @@ This builds for four targets and attaches the binaries to a GitHub Release:
 
 ```
 rx (single binary, MSRV 1.85.0)
-├── cli/           CLI definition (clap derive) with --quiet/--verbose
-├── config/        rx.toml parsing, global/project merge, smart init
+├── cli/           CLI definition (clap derive) with lazy config loading
+├── config/        rx.toml parsing, global/project merge, smart init, key validation
 ├── build/         cargo build with fast linker, cache, cross-compilation, timing
 ├── cache/         content-addressed store with atomic writes, file locking, mtime fast-path
 ├── workspace/     dependency graph, topo sort, parallel wave execution
 ├── output/        colored output, progress spinners, timing, verbosity control
+├── check/         fast type-checking (cargo check)
+├── fix/           auto-fix pipeline (cargo fix + clippy --fix + fmt)
+├── ci/            local CI pipeline runner
+├── size/          binary size analysis with cargo-bloat support
+├── tree/          dependency tree visualization
+├── outdated/      outdated dependency checker
+├── audit/         security vulnerability auditing
+├── selfupdate/    self-update mechanism
 ├── pkg/           dependency management (add/remove/upgrade)
 ├── toolchain/     rustup wrapper for toolchain management
 ├── test/          test runner with timing (auto-selects nextest)
@@ -265,7 +359,7 @@ rx (single binary, MSRV 1.85.0)
 
 ## Testing
 
-rx has 62 tests across 5 test suites:
+rx has 70 tests across 5 test suites:
 
 ```sh
 cargo test
@@ -274,7 +368,7 @@ cargo test
 | Suite | Tests | Coverage |
 |---|---|---|
 | `cache_tests` | 8 | Fingerprinting, cache hit/miss, store/restore |
-| `cli_tests` | 25 | All CLI commands parse correctly |
+| `cli_tests` | 33 | All CLI commands parse correctly (including check, fix, ci, size, tree, outdated, audit, self-update) |
 | `config_tests` | 8 | Config loading, merging, serialization |
 | `integration_tests` | 10 | End-to-end: init, build, test, fmt, doctor, flags |
 | `workspace_tests` | 11 | Topo sort, parallel waves, cycle detection |
