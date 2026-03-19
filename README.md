@@ -9,13 +9,15 @@ The Rust toolchain is powerful but fragmented. You need `rustup`, `cargo`, `clip
 **rx** wraps and extends Cargo into a single, opinionated CLI with:
 
 - **Fast builds** — auto-detects and uses `mold` or `lld` linkers
-- **Global artifact cache** — content-addressed store at `~/.rx/cache` with mtime-based fast-path invalidation
+- **Global artifact cache** — content-addressed store with atomic writes, file locking, and mtime-based fast-path invalidation
 - **Cross-compilation** — `rx build --target <triple>` for easy cross-compiling
 - **Workspace orchestration** — dependency-aware parallel execution across workspace members
 - **Unified commands** — `rx test` uses nextest when available, `rx lint` runs clippy with strict defaults, `rx fmt` runs rustfmt
 - **Project config** — `rx.toml` controls build, test, lint, fmt, watch, scripts, and env vars
-- **Colored output** — clear, color-coded status messages throughout
+- **Colored output** — clear, color-coded status messages with timing and progress indicators
 - **Environment checks** — `rx doctor` verifies your toolchain is ready
+- **Graceful signals** — Ctrl+C handling for clean shutdown
+- **Actionable errors** — every failure includes hints on how to fix it
 
 ## Install
 
@@ -61,12 +63,12 @@ rx run
 
 | Command | Description |
 |---|---|
-| `rx init` | Generate `rx.toml` with defaults |
+| `rx init` | Generate `rx.toml` with smart defaults |
 | `rx config` | Show resolved configuration |
 | `rx new <name>` | Create a new Rust project |
 | `rx build` | Build with fast linker + caching |
 | `rx build --target <triple>` | Cross-compile for a target triple |
-| `rx run` | Build and run |
+| `rx run [-- args...]` | Build and run (args pass through to binary) |
 | `rx test` | Run tests (nextest if available) |
 | `rx fmt` | Format code |
 | `rx lint` | Lint with clippy |
@@ -83,9 +85,23 @@ rx run
 | `rx watch` | Watch for changes and rebuild |
 | `rx clean` | Clean build artifacts |
 
+### Global flags
+
+| Flag | Description |
+|---|---|
+| `--quiet` / `-q` | Suppress non-error output |
+| `--verbose` / `-v` | Show extra detail (cache paths, timing, etc.) |
+
+All commands support these flags. For example:
+
+```sh
+rx --quiet build --release    # silent build
+rx --verbose test             # show timing and debug info
+```
+
 ## Configuration
 
-Run `rx init` to generate an `rx.toml`:
+Run `rx init` to generate an `rx.toml`. Smart defaults are applied based on your project — workspaces get a `ci` script, and if `mold` is available it's set as the default linker.
 
 ```toml
 [build]
@@ -110,7 +126,7 @@ cmd = "build"         # default command on file changes
 ignore = []           # file patterns to ignore
 
 [scripts]
-ci = "cargo fmt --check && cargo clippy && cargo test"
+ci = "cargo fmt --check && cargo clippy -- -D warnings && cargo test"
 
 [env]
 RUST_BACKTRACE = "1"
@@ -120,12 +136,17 @@ Config is resolved by merging `~/.rx/config.toml` (global) with the project's `r
 
 ## Cache
 
-rx maintains a global content-addressed artifact cache at `~/.rx/cache`. On each build:
+rx maintains a global content-addressed artifact cache at `~/.rx/cache`. The cache is designed for correctness even under concurrent use:
 
 1. An **mtime fast-path** checks if any source file has changed since the last build — if nothing changed, the cached fingerprint is reused instantly without reading file contents
 2. On mtime mismatch, a full SHA-256 fingerprint is computed from `Cargo.toml`, `Cargo.lock`, all source files, the build profile, and RUSTFLAGS
 3. If a cached build matches the fingerprint, artifacts are hardlinked back into `target/` — skipping `cargo build` entirely
 4. On cache miss, the build runs normally and results are stored for future use
+
+**Integrity guarantees:**
+- **Atomic writes** — cache index and mtime snapshots are written to a temp file then atomically renamed, so interrupted writes can't corrupt state
+- **File locking** — a lock file prevents concurrent `rx` processes from racing on the cache index
+- **Staging directory** — new artifacts are written to a staging dir then renamed into place, so partial builds never pollute the cache
 
 ```sh
 rx cache status    # show cache size and artifact count
@@ -159,13 +180,13 @@ rx publish --package mylib      # publish a single crate
 rx publish --dry-run            # validate without publishing
 ```
 
-When publishing an entire workspace, members are published in topological order with a delay between each to allow crates.io to index dependencies.
+When publishing an entire workspace, members are published in topological order with a progress spinner while waiting for crates.io to index each dependency.
 
 ## Doctor
 
 `rx doctor` checks that your development environment is properly set up:
 
-```sh
+```
 $ rx doctor
 rx doctor
 ──────────────────────────────────────────────────
@@ -183,30 +204,82 @@ rx doctor
 All required tools present.
 ```
 
+## Error handling
+
+rx is designed to give you actionable feedback when things go wrong:
+
+```
+$ rx build
+[rx] could not find Cargo.toml in any parent directory
+hint: run this command from inside a Rust project, or use `rx new <name>` to create one
+
+$ rx lint
+[rx] lint failed — run `rx lint --fix` to auto-fix what's possible
+
+$ rx publish
+[rx] publish failed for mylib
+hint: check that you're logged in with `cargo login` and the package version is bumped
+```
+
+Every error includes context about what went wrong and a suggestion for how to fix it. Use `--verbose` for additional diagnostic detail.
+
+## Releasing
+
+rx includes a GitHub Actions workflow that automatically builds and publishes binaries when you push a version tag:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+This builds for four targets and attaches the binaries to a GitHub Release:
+- `x86_64-unknown-linux-gnu`
+- `aarch64-unknown-linux-gnu`
+- `x86_64-apple-darwin`
+- `aarch64-apple-darwin`
+
 ## Architecture
 
 ```
-rx (single binary)
-├── cli/           CLI definition (clap derive)
-├── config/        rx.toml parsing, global/project merge
-├── build/         cargo build with fast linker, cache, cross-compilation
-├── cache/         content-addressed artifact store with mtime fast-path + GC
+rx (single binary, MSRV 1.85.0)
+├── cli/           CLI definition (clap derive) with --quiet/--verbose
+├── config/        rx.toml parsing, global/project merge, smart init
+├── build/         cargo build with fast linker, cache, cross-compilation, timing
+├── cache/         content-addressed store with atomic writes, file locking, mtime fast-path
 ├── workspace/     dependency graph, topo sort, parallel wave execution
-├── output/        colored terminal output (owo-colors)
+├── output/        colored output, progress spinners, timing, verbosity control
 ├── pkg/           dependency management (add/remove/upgrade)
 ├── toolchain/     rustup wrapper for toolchain management
-├── test/          test runner (auto-selects nextest)
-├── fmt/           rustfmt wrapper
-├── lint/          clippy wrapper with configurable severity
+├── test/          test runner with timing (auto-selects nextest)
+├── fmt/           rustfmt wrapper with timing
+├── lint/          clippy wrapper with configurable severity and timing
 ├── watch/         cargo-watch wrapper with ignore patterns
-├── bench/         benchmark runner
+├── bench/         benchmark runner with timing
 ├── expand/        macro expansion (cargo-expand)
-├── publish/       workspace-aware crates.io publishing
+├── publish/       workspace-aware crates.io publishing with progress
 ├── doctor/        environment health checks
-├── upgrade/       toolchain and dependency updater
-├── completions/   shell completion generator
+├── upgrade/       toolchain and dependency updater with timing
+├── completions/   shell completion + man page generation
 └── install.sh     self-installer script
 ```
+
+## Testing
+
+rx has 62 tests across 5 test suites:
+
+```sh
+cargo test
+```
+
+| Suite | Tests | Coverage |
+|---|---|---|
+| `cache_tests` | 8 | Fingerprinting, cache hit/miss, store/restore |
+| `cli_tests` | 25 | All CLI commands parse correctly |
+| `config_tests` | 8 | Config loading, merging, serialization |
+| `integration_tests` | 10 | End-to-end: init, build, test, fmt, doctor, flags |
+| `workspace_tests` | 11 | Topo sort, parallel waves, cycle detection |
+
+CI runs on every push: check, test (ubuntu + macos), clippy, fmt, and MSRV verification.
 
 ## License
 
