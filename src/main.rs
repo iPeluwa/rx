@@ -17,11 +17,20 @@ mod upgrade;
 mod watch;
 mod workspace;
 
-use anyhow::Result;
 use clap::Parser;
 use cli::Cli;
 
-fn main() -> Result<()> {
+fn main() {
+    // Install Ctrl+C handler for graceful shutdown
+    ctrlc::set_handler(|| {
+        output::error("interrupted");
+        std::process::exit(130);
+    })
+    .ok();
+
     let cli = Cli::parse();
-    cli::dispatch(cli)
+    if let Err(err) = cli::dispatch(cli) {
+        output::error(&format!("{err:#}"));
+        std::process::exit(1);
+    }
 }

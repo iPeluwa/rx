@@ -5,6 +5,14 @@ use clap_complete::Shell;
 #[derive(Parser)]
 #[command(name = "rx", version, about = "A fast, unified Rust toolchain manager")]
 pub struct Cli {
+    /// Suppress non-error output
+    #[arg(long, short, global = true)]
+    pub quiet: bool,
+
+    /// Show verbose output
+    #[arg(long, short, global = true)]
+    pub verbose: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -45,7 +53,7 @@ pub enum Command {
         #[arg(long, short)]
         release: bool,
         /// Arguments to pass to the binary
-        #[arg(trailing_var_arg = true)]
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
 
@@ -233,6 +241,10 @@ pub enum WsCommand {
 }
 
 pub fn dispatch(cli: Cli) -> Result<()> {
+    // Set output verbosity
+    crate::output::set_quiet(cli.quiet);
+    crate::output::set_verbose(cli.verbose);
+
     let config = crate::config::load()?;
 
     // Apply env vars from config

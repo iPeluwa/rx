@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use walkdir::WalkDir;
@@ -44,13 +45,94 @@ fn index_path() -> Result<PathBuf> {
     Ok(cache_dir()?.join("index.toml"))
 }
 
+fn lock_path() -> Result<PathBuf> {
+    Ok(cache_dir()?.join(".lock"))
+}
+
 fn mtime_path(project_root: &Path) -> Result<PathBuf> {
-    // Store mtime snapshot per-project, keyed by a hash of the project path
     let mut hasher = Sha256::new();
     hasher.update(project_root.to_string_lossy().as_bytes());
     let key = hex::encode(&hasher.finalize()[..8]);
     Ok(cache_dir()?.join("mtimes").join(format!("{key}.toml")))
 }
+
+// ---------------------------------------------------------------------------
+// File locking for concurrent access
+// ---------------------------------------------------------------------------
+
+struct FileLock {
+    path: PathBuf,
+}
+
+impl FileLock {
+    fn acquire() -> Result<Self> {
+        let path = lock_path()?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        // Simple lock: try to create exclusively, retry briefly if locked
+        for attempt in 0..50 {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut f) => {
+                    // Write our PID for debugging
+                    let _ = write!(f, "{}", std::process::id());
+                    return Ok(Self { path });
+                }
+                Err(_) if attempt < 49 => {
+                    // Check if stale (older than 60s)
+                    if let Ok(meta) = fs::metadata(&path) {
+                        if let Ok(modified) = meta.modified() {
+                            if modified.elapsed().unwrap_or_default().as_secs() > 60 {
+                                fs::remove_file(&path).ok();
+                                continue;
+                            }
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(e) => {
+                    anyhow::bail!(
+                        "could not acquire cache lock at {}: {e}\n\
+                         If no other rx process is running, delete the lock file manually.",
+                        path.display()
+                    );
+                }
+            }
+        }
+        unreachable!()
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        fs::remove_file(&self.path).ok();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Atomic file writes
+// ---------------------------------------------------------------------------
+
+/// Write to a temp file then atomically rename, preventing corruption from
+/// interrupted writes.
+fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, contents).with_context(|| format!("failed to write {}", tmp.display()))?;
+    fs::rename(&tmp, path).with_context(|| format!("failed to rename to {}", path.display()))?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Index I/O (with lock + atomic writes)
+// ---------------------------------------------------------------------------
 
 fn load_index() -> Result<CacheIndex> {
     let path = index_path()?;
@@ -63,12 +145,8 @@ fn load_index() -> Result<CacheIndex> {
 
 fn save_index(index: &CacheIndex) -> Result<()> {
     let path = index_path()?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
     let contents = toml::to_string_pretty(index)?;
-    fs::write(&path, contents)?;
-    Ok(())
+    atomic_write(&path, contents.as_bytes())
 }
 
 fn load_mtime_snapshot(project_root: &Path) -> Result<Option<MtimeSnapshot>> {
@@ -82,12 +160,8 @@ fn load_mtime_snapshot(project_root: &Path) -> Result<Option<MtimeSnapshot>> {
 
 fn save_mtime_snapshot(project_root: &Path, snapshot: &MtimeSnapshot) -> Result<()> {
     let path = mtime_path(project_root)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
     let contents = toml::to_string_pretty(snapshot)?;
-    fs::write(&path, contents)?;
-    Ok(())
+    atomic_write(&path, contents.as_bytes())
 }
 
 // ---------------------------------------------------------------------------
@@ -149,16 +223,13 @@ fn try_mtime_fast_path(
 ) -> Option<String> {
     let snapshot = load_mtime_snapshot(project_root).ok()??;
 
-    // Check profile/flags match by verifying the stored fingerprint is for the same config
     let current_files = collect_input_files(project_root);
 
-    // Build a map of current state
     let current_map: HashMap<&str, (u64, u64)> = current_files
         .iter()
         .map(|(path, mtime, size)| (path.as_str(), (*mtime, *size)))
         .collect();
 
-    // Check if file set and mtimes match exactly
     if current_map.len() != snapshot.files.len() {
         return None;
     }
@@ -170,7 +241,6 @@ fn try_mtime_fast_path(
         }
     }
 
-    // Mtimes match — verify the profile/flags are the same by recomputing a config hash
     let mut config_hasher = Sha256::new();
     config_hasher.update(profile.as_bytes());
     config_hasher.update(b"\0");
@@ -195,13 +265,14 @@ pub fn compute_build_fingerprint(
 ) -> Result<String> {
     // Try fast path first
     if let Some(fp) = try_mtime_fast_path(project_root, profile, rustflags) {
+        crate::output::verbose("fingerprint: mtime fast-path hit");
         return Ok(fp);
     }
 
-    // Full hash
+    crate::output::verbose("fingerprint: computing full content hash...");
+
     let mut hasher = Sha256::new();
 
-    // Config prefix (used for mtime validation)
     let mut config_hasher = Sha256::new();
     config_hasher.update(profile.as_bytes());
     config_hasher.update(b"\0");
@@ -275,6 +346,7 @@ fn build_cache_dir(fingerprint: &str) -> Result<PathBuf> {
 }
 
 pub fn lookup_build(fingerprint: &str) -> Result<Option<PathBuf>> {
+    let _lock = FileLock::acquire()?;
     let dir = build_cache_dir(fingerprint)?;
     if dir.exists() && fs::read_dir(&dir)?.next().is_some() {
         let mut index = load_index()?;
@@ -289,17 +361,36 @@ pub fn lookup_build(fingerprint: &str) -> Result<Option<PathBuf>> {
 }
 
 pub fn store_build(fingerprint: &str, artifacts: &[(String, PathBuf)]) -> Result<PathBuf> {
-    let dir = build_cache_dir(fingerprint)?;
-    fs::create_dir_all(&dir)?;
+    let _lock = FileLock::acquire()?;
+
+    // Write artifacts to a temp dir first, then rename for atomicity
+    let final_dir = build_cache_dir(fingerprint)?;
+    let staging_dir = final_dir.with_extension("staging");
+
+    // Clean up any leftover staging dir from a previous interrupted store
+    if staging_dir.exists() {
+        fs::remove_dir_all(&staging_dir).ok();
+    }
+    fs::create_dir_all(&staging_dir)?;
 
     let mut total_size: u64 = 0;
     for (name, source) in artifacts {
-        let dest = dir.join(name);
+        let dest = staging_dir.join(name);
         if fs::hard_link(source, &dest).is_err() {
             fs::copy(source, &dest).with_context(|| format!("failed to cache artifact {name}"))?;
         }
         total_size += fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
     }
+
+    // Atomically move staging -> final
+    if final_dir.exists() {
+        fs::remove_dir_all(&final_dir).ok();
+    }
+    if let Some(parent) = final_dir.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::rename(&staging_dir, &final_dir)
+        .with_context(|| format!("failed to finalize cache at {}", final_dir.display()))?;
 
     let mut index = load_index()?;
     index.artifacts.insert(
@@ -312,7 +403,7 @@ pub fn store_build(fingerprint: &str, artifacts: &[(String, PathBuf)]) -> Result
     );
     save_index(&index)?;
 
-    Ok(dir)
+    Ok(final_dir)
 }
 
 pub fn restore_build(cache_path: &Path, target_dir: &Path) -> Result<usize> {
@@ -378,6 +469,7 @@ fn status() -> Result<()> {
 }
 
 fn gc(older_than_days: u32) -> Result<()> {
+    let _lock = FileLock::acquire()?;
     let mut index = load_index()?;
     let cutoff = Utc::now() - chrono::Duration::days(i64::from(older_than_days));
     let stale_keys: Vec<String> = index

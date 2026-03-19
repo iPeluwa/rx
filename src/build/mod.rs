@@ -5,6 +5,7 @@ use std::process::Command;
 
 use crate::cache;
 use crate::config::RxConfig;
+use crate::output::Timer;
 
 /// Detect the fastest available linker on the system.
 fn detect_linker() -> Option<&'static str> {
@@ -72,21 +73,28 @@ fn find_project_root() -> Result<PathBuf> {
             return Ok(dir);
         }
         if !dir.pop() {
-            anyhow::bail!("could not find Cargo.toml in any parent directory");
+            anyhow::bail!(
+                "could not find Cargo.toml in any parent directory\n\
+                 hint: run this command from inside a Rust project, or use `rx new <name>` to create one"
+            );
         }
     }
 }
 
 /// Read the package name from Cargo.toml.
 fn package_name(project_root: &Path) -> Result<String> {
-    let contents = fs::read_to_string(project_root.join("Cargo.toml"))?;
-    let table: toml::Table = toml::from_str(&contents)?;
+    let contents =
+        fs::read_to_string(project_root.join("Cargo.toml")).context("failed to read Cargo.toml")?;
+    let table: toml::Table = toml::from_str(&contents).context("failed to parse Cargo.toml")?;
     table
         .get("package")
         .and_then(|p| p.get("name"))
         .and_then(|n| n.as_str())
         .map(|s| s.to_string())
-        .context("could not read package name from Cargo.toml")
+        .context(
+            "could not read package name from Cargo.toml\n\
+             hint: ensure [package] section has a `name` field",
+        )
 }
 
 /// Collect final build artifacts from target/{profile}/.
@@ -137,6 +145,7 @@ pub fn build(
     target: Option<&str>,
     config: &RxConfig,
 ) -> Result<()> {
+    let timer = Timer::start("build");
     let project_root = find_project_root()?;
     let profile = if release { "release" } else { "debug" };
     let flags = build_rustflags(config);
@@ -178,7 +187,10 @@ pub fn build(
         cmd.args(["--target", t]);
     }
 
-    let status = cmd.status().context("failed to run cargo build")?;
+    let status = cmd.status().context(
+        "failed to run cargo build\n\
+         hint: is cargo installed? run `rx doctor` to check",
+    )?;
     if !status.success() {
         anyhow::bail!("build failed");
     }
@@ -197,6 +209,7 @@ pub fn build(
         }
     }
 
+    timer.finish();
     Ok(())
 }
 
@@ -229,7 +242,10 @@ pub fn run(release: bool, args: &[String], config: &RxConfig) -> Result<()> {
         if release {
             cmd.arg("--release");
         }
-        let status = cmd.status().context("failed to run cargo build")?;
+        let status = cmd.status().context(
+            "failed to run cargo build\n\
+             hint: is cargo installed? run `rx doctor` to check",
+        )?;
         if !status.success() {
             anyhow::bail!("build failed");
         }
@@ -254,7 +270,8 @@ pub fn run(release: bool, args: &[String], config: &RxConfig) -> Result<()> {
 
     if !binary.exists() {
         anyhow::bail!(
-            "binary not found at {}. Does this project produce a binary?",
+            "binary not found at {}\n\
+             hint: does this project produce a binary? check [lib] vs [[bin]] in Cargo.toml",
             binary.display()
         );
     }

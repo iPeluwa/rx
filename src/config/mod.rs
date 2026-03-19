@@ -238,9 +238,37 @@ pub fn load_for_dir(dir: &Path) -> Result<RxConfig> {
     }
 }
 
-/// Generate a starter rx.toml.
+/// Generate a starter rx.toml with smart defaults based on the project.
 pub fn init_config(path: &Path) -> Result<()> {
-    let config = RxConfig::default();
+    let mut config = RxConfig::default();
+
+    // Detect project structure for smart defaults
+    let project_dir = path.parent().unwrap_or(Path::new("."));
+
+    // Check if it's a workspace
+    let cargo_toml = project_dir.join("Cargo.toml");
+    if cargo_toml.exists() {
+        if let Ok(contents) = fs::read_to_string(&cargo_toml) {
+            if contents.contains("[workspace]") {
+                // Workspace projects benefit from a CI script
+                config.scripts.insert(
+                    "ci".into(),
+                    "cargo fmt --check && cargo clippy -- -D warnings && cargo test".into(),
+                );
+            }
+        }
+    }
+
+    // Check if common tools are available and configure accordingly
+    if std::process::Command::new("mold")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        config.build.linker = "mold".into();
+    }
+
     let contents = toml::to_string_pretty(&config).context("failed to serialize config")?;
     fs::write(path, contents).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(())

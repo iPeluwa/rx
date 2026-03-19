@@ -1,23 +1,23 @@
 use anyhow::{Context, Result};
-use owo_colors::OwoColorize;
 use std::process::Command;
 
+use crate::output::Timer;
+
 pub fn upgrade() -> Result<()> {
+    let timer = Timer::start("upgrade");
+
     // Step 1: Update Rust toolchains
-    eprintln!("{} updating Rust toolchains...", "[rx]".cyan().bold());
+    crate::output::info("updating Rust toolchains...");
     let status = Command::new("rustup")
         .arg("update")
         .status()
         .context("failed to run rustup update")?;
     if !status.success() {
-        eprintln!(
-            "{} rustup update failed, continuing...",
-            "[rx]".yellow().bold()
-        );
+        crate::output::warn("rustup update failed, continuing...");
     }
 
     // Step 2: Update dependencies
-    eprintln!("{} updating dependencies...", "[rx]".cyan().bold());
+    crate::output::info("updating dependencies...");
     let status = Command::new("cargo")
         .arg("update")
         .status()
@@ -27,10 +27,7 @@ pub fn upgrade() -> Result<()> {
     }
 
     // Step 3: Check for outdated deps (informational)
-    eprintln!(
-        "{} checking for outdated dependencies...",
-        "[rx]".cyan().bold()
-    );
+    crate::output::info("checking for outdated dependencies...");
     let output = Command::new("cargo")
         .args(["outdated", "--root-deps-only"])
         .output();
@@ -38,19 +35,18 @@ pub fn upgrade() -> Result<()> {
         Ok(out) if out.status.success() => {
             let stdout = String::from_utf8_lossy(&out.stdout);
             if stdout.trim().is_empty() || stdout.contains("All dependencies are up to date") {
-                eprintln!("{} all dependencies are up to date", "[rx]".green().bold());
+                crate::output::success("all dependencies are up to date");
             } else {
                 println!("{stdout}");
             }
         }
         _ => {
-            eprintln!(
-                "{} install cargo-outdated for dependency freshness checks",
-                "[rx]".dimmed()
+            crate::output::verbose(
+                "install cargo-outdated for dependency freshness checks: cargo install cargo-outdated",
             );
         }
     }
 
-    eprintln!("{} upgrade complete", "[rx]".green().bold());
+    timer.finish();
     Ok(())
 }

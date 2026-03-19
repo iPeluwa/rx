@@ -227,3 +227,28 @@ fn parse_completions() {
         _ => panic!("expected Completions"),
     }
 }
+
+#[test]
+fn parse_quiet_flag() {
+    let cli = parse(&["--quiet", "build"]);
+    assert!(cli.quiet);
+    assert!(!cli.verbose);
+}
+
+#[test]
+fn parse_verbose_flag() {
+    let cli = parse(&["--verbose", "build"]);
+    assert!(cli.verbose);
+    assert!(!cli.quiet);
+}
+
+#[test]
+fn parse_run_with_passthrough_args() {
+    let cli = parse(&["run", "--", "--my-flag", "value"]);
+    match cli.command {
+        rx::cli::Command::Run { args, .. } => {
+            assert_eq!(args, vec!["--my-flag", "value"]);
+        }
+        _ => panic!("expected Run"),
+    }
+}

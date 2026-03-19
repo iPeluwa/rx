@@ -19,7 +19,10 @@ fn publish_single(package: &str, dry_run: bool) -> Result<()> {
 
     let status = cmd.status().context("failed to run cargo publish")?;
     if !status.success() {
-        anyhow::bail!("publish failed for {package}");
+        anyhow::bail!(
+            "publish failed for {package}\n\
+             hint: check that you're logged in with `cargo login` and the package version is bumped"
+        );
     }
     if dry_run {
         crate::output::success(&format!("{package} dry-run passed"));
@@ -51,13 +54,18 @@ fn publish_workspace(dry_run: bool) -> Result<()> {
             .with_context(|| format!("failed to publish {}", member.name))?;
 
         if !status.success() {
-            anyhow::bail!("publish failed for {}", member.name);
+            anyhow::bail!(
+                "publish failed for {}\n\
+                 hint: check that you're logged in with `cargo login` and the package version is bumped",
+                member.name
+            );
         }
 
         if !dry_run {
             // Give crates.io time to index between publishes
-            crate::output::info("waiting for crates.io to index...");
+            let pb = crate::output::spinner("waiting for crates.io to index...");
             std::thread::sleep(std::time::Duration::from_secs(15));
+            pb.finish_and_clear();
         }
     }
 

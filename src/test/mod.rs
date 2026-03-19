@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use std::process::Command;
 
 use crate::config::RxConfig;
+use crate::output::Timer;
 
 fn has_nextest() -> bool {
     Command::new("cargo")
@@ -17,6 +18,7 @@ pub fn test(
     release: bool,
     config: &RxConfig,
 ) -> Result<()> {
+    let timer = Timer::start("test");
     let use_nextest = match config.test.runner.as_str() {
         "nextest" => true,
         "cargo" => false,
@@ -52,9 +54,13 @@ pub fn test(
         }
     }
 
-    let status = cmd.status().context("failed to run tests")?;
+    let status = cmd.status().context(
+        "failed to run tests\n\
+         hint: is cargo installed? run `rx doctor` to check",
+    )?;
     if !status.success() {
         anyhow::bail!("tests failed");
     }
+    timer.finish();
     Ok(())
 }
