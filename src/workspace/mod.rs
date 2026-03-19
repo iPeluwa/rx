@@ -224,12 +224,12 @@ pub fn topo_sort(graph: &WorkspaceGraph) -> Result<Vec<&Member>> {
 
         // Find members that depend on `name` and decrement their in-degree
         for (dependent, dep_set) in &graph.deps {
-            if dep_set.contains(name)
-                && let Some(deg) = in_degree.get_mut(dependent.as_str())
-            {
-                *deg -= 1;
-                if *deg == 0 {
-                    queue.push_back(dependent.as_str());
+            if dep_set.contains(name) {
+                if let Some(deg) = in_degree.get_mut(dependent.as_str()) {
+                    *deg -= 1;
+                    if *deg == 0 {
+                        queue.push_back(dependent.as_str());
+                    }
                 }
             }
         }
@@ -283,10 +283,10 @@ pub fn parallel_waves(graph: &WorkspaceGraph) -> Result<Vec<Vec<&Member>>> {
             remaining.remove(name);
             // Decrement in-degree for dependents
             for (dependent, dep_set) in &graph.deps {
-                if dep_set.contains(name)
-                    && let Some(deg) = in_degree.get_mut(dependent.as_str())
-                {
-                    *deg = deg.saturating_sub(1);
+                if dep_set.contains(name) {
+                    if let Some(deg) = in_degree.get_mut(dependent.as_str()) {
+                        *deg = deg.saturating_sub(1);
+                    }
                 }
             }
         }

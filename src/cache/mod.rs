@@ -483,10 +483,10 @@ fn gc(older_than_days: u32) -> Result<()> {
     for key in &stale_keys {
         if let Some(entry) = index.artifacts.remove(key) {
             freed += entry.size;
-            if let Ok(dir) = build_cache_dir(&entry.content_hash)
-                && dir.exists()
-            {
-                fs::remove_dir_all(&dir).ok();
+            if let Ok(dir) = build_cache_dir(&entry.content_hash) {
+                if dir.exists() {
+                    fs::remove_dir_all(&dir).ok();
+                }
             }
         }
     }
