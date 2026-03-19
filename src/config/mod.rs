@@ -80,19 +80,11 @@ impl Default for LintConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(default)]
 pub struct FmtConfig {
     /// Extra rustfmt arguments
     pub extra_args: Vec<String>,
-}
-
-impl Default for FmtConfig {
-    fn default() -> Self {
-        Self {
-            extra_args: vec![],
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -94,11 +94,7 @@ pub fn compute_build_fingerprint(
         let mut rs_files: Vec<PathBuf> = WalkDir::new(&src_dir)
             .into_iter()
             .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .is_some_and(|ext| ext == "rs")
-            })
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
             .map(|e| e.into_path())
             .collect();
         rs_files.sort();
@@ -118,7 +114,10 @@ pub fn compute_build_fingerprint(
 
 /// Directory where cached build outputs for a given fingerprint are stored.
 fn build_cache_dir(fingerprint: &str) -> Result<PathBuf> {
-    Ok(cache_dir()?.join("builds").join(&fingerprint[..2]).join(fingerprint))
+    Ok(cache_dir()?
+        .join("builds")
+        .join(&fingerprint[..2])
+        .join(fingerprint))
 }
 
 /// Check if we have cached build outputs for this fingerprint.
@@ -150,9 +149,7 @@ pub fn store_build(fingerprint: &str, artifacts: &[(String, PathBuf)]) -> Result
         let dest = dir.join(name);
         // Try hardlink first (same filesystem = free), fall back to copy
         if fs::hard_link(source, &dest).is_err() {
-            fs::copy(source, &dest).with_context(|| {
-                format!("failed to cache artifact {name}")
-            })?;
+            fs::copy(source, &dest).with_context(|| format!("failed to cache artifact {name}"))?;
         }
         total_size += fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
     }
@@ -251,10 +248,10 @@ fn gc(older_than_days: u32) -> Result<()> {
         if let Some(entry) = index.artifacts.remove(key) {
             freed += entry.size;
             // Remove build cache directory
-            if let Ok(dir) = build_cache_dir(&entry.content_hash) {
-                if dir.exists() {
-                    fs::remove_dir_all(&dir).ok();
-                }
+            if let Ok(dir) = build_cache_dir(&entry.content_hash)
+                && dir.exists()
+            {
+                fs::remove_dir_all(&dir).ok();
             }
         }
     }

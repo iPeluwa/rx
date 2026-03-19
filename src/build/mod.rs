@@ -139,8 +139,7 @@ pub fn build(release: bool, package: Option<&str>, config: &RxConfig) -> Result<
 
     // Check cache if enabled
     if config.build.cache {
-        let fingerprint =
-            cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
+        let fingerprint = cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
 
         if let Some(cached) = cache::lookup_build(&fingerprint)? {
             let target_dir = project_root.join("target").join(profile);
@@ -172,8 +171,7 @@ pub fn build(release: bool, package: Option<&str>, config: &RxConfig) -> Result<
 
     // Store in cache
     if config.build.cache {
-        let fingerprint =
-            cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
+        let fingerprint = cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
         let target_dir = project_root.join("target");
         let artifacts = collect_artifacts(&target_dir, profile)?;
         if !artifacts.is_empty() {
@@ -197,8 +195,7 @@ pub fn run(release: bool, args: &[String], config: &RxConfig) -> Result<()> {
     // Try cache
     let mut needs_build = true;
     if config.build.cache {
-        let fingerprint =
-            cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
+        let fingerprint = cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
         if let Some(cached) = cache::lookup_build(&fingerprint)? {
             let target_dir = project_root.join("target").join(profile);
             let count = cache::restore_build(&cached, &target_dir)?;
@@ -224,8 +221,7 @@ pub fn run(release: bool, args: &[String], config: &RxConfig) -> Result<()> {
         }
 
         if config.build.cache {
-            let fingerprint =
-                cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
+            let fingerprint = cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
             let target_dir = project_root.join("target");
             let artifacts = collect_artifacts(&target_dir, profile)?;
             if !artifacts.is_empty() {

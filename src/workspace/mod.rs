@@ -34,7 +34,6 @@ struct WorkspaceSection {
     members: Option<Vec<String>>,
 }
 
-
 // ---------------------------------------------------------------------------
 // Workspace graph
 // ---------------------------------------------------------------------------
@@ -109,34 +108,34 @@ fn parse_member(path: &Path) -> Result<(String, HashSet<String>)> {
     let parsed: CargoToml = toml::from_str(&contents)
         .with_context(|| format!("failed to parse {}", cargo_toml.display()))?;
 
-    let name = parsed
-        .package
-        .and_then(|p| p.name)
-        .unwrap_or_else(|| {
-            path.file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string()
-        });
+    let name = parsed.package.and_then(|p| p.name).unwrap_or_else(|| {
+        path.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
+    });
 
     let mut dep_names = HashSet::new();
-    for deps_map in [
+    for deps in [
         &parsed.dependencies,
         &parsed.dev_dependencies,
         &parsed.build_dependencies,
-    ] {
-        if let Some(deps) = deps_map {
-            for (dep_name, value) in deps {
-                // A workspace dependency uses `path = "..."` or `workspace = true`
-                let is_path_dep = match value {
-                    toml::Value::Table(t) => {
-                        t.contains_key("path") || t.get("workspace").and_then(|v| v.as_bool()).unwrap_or(false)
-                    }
-                    _ => false,
-                };
-                if is_path_dep {
-                    dep_names.insert(dep_name.clone());
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for (dep_name, value) in deps {
+            let is_path_dep = match value {
+                toml::Value::Table(t) => {
+                    t.contains_key("path")
+                        || t.get("workspace")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
                 }
+                _ => false,
+            };
+            if is_path_dep {
+                dep_names.insert(dep_name.clone());
             }
         }
     }
@@ -196,11 +195,8 @@ pub fn resolve_workspace() -> Result<WorkspaceGraph> {
 /// Returns members in topological order (dependencies first).
 /// Detects cycles.
 pub fn topo_sort(graph: &WorkspaceGraph) -> Result<Vec<&Member>> {
-    let member_map: HashMap<&str, &Member> = graph
-        .members
-        .iter()
-        .map(|m| (m.name.as_str(), m))
-        .collect();
+    let member_map: HashMap<&str, &Member> =
+        graph.members.iter().map(|m| (m.name.as_str(), m)).collect();
 
     // Compute in-degrees
     let mut in_degree: HashMap<&str, usize> = HashMap::new();
@@ -228,12 +224,12 @@ pub fn topo_sort(graph: &WorkspaceGraph) -> Result<Vec<&Member>> {
 
         // Find members that depend on `name` and decrement their in-degree
         for (dependent, dep_set) in &graph.deps {
-            if dep_set.contains(name) {
-                if let Some(deg) = in_degree.get_mut(dependent.as_str()) {
-                    *deg -= 1;
-                    if *deg == 0 {
-                        queue.push_back(dependent.as_str());
-                    }
+            if dep_set.contains(name)
+                && let Some(deg) = in_degree.get_mut(dependent.as_str())
+            {
+                *deg -= 1;
+                if *deg == 0 {
+                    queue.push_back(dependent.as_str());
                 }
             }
         }
@@ -250,11 +246,8 @@ pub fn topo_sort(graph: &WorkspaceGraph) -> Result<Vec<&Member>> {
 /// Each wave contains members whose dependencies have all been satisfied by
 /// previous waves.
 pub fn parallel_waves(graph: &WorkspaceGraph) -> Result<Vec<Vec<&Member>>> {
-    let member_map: HashMap<&str, &Member> = graph
-        .members
-        .iter()
-        .map(|m| (m.name.as_str(), m))
-        .collect();
+    let member_map: HashMap<&str, &Member> =
+        graph.members.iter().map(|m| (m.name.as_str(), m)).collect();
 
     let mut in_degree: HashMap<&str, usize> = HashMap::new();
     for m in &graph.members {
@@ -282,17 +275,18 @@ pub fn parallel_waves(graph: &WorkspaceGraph) -> Result<Vec<Vec<&Member>>> {
             anyhow::bail!("cycle detected in workspace dependency graph");
         }
 
-        let wave_members: Vec<&Member> = wave.iter().map(|&n| *member_map.get(n).unwrap()).collect();
+        let wave_members: Vec<&Member> =
+            wave.iter().map(|&n| *member_map.get(n).unwrap()).collect();
         waves.push(wave_members);
 
         for &name in &wave {
             remaining.remove(name);
             // Decrement in-degree for dependents
             for (dependent, dep_set) in &graph.deps {
-                if dep_set.contains(name) {
-                    if let Some(deg) = in_degree.get_mut(dependent.as_str()) {
-                        *deg = deg.saturating_sub(1);
-                    }
+                if dep_set.contains(name)
+                    && let Some(deg) = in_degree.get_mut(dependent.as_str())
+                {
+                    *deg = deg.saturating_sub(1);
                 }
             }
         }
@@ -352,10 +346,7 @@ fn run_across_workspace(cargo_cmd: &str, extra_args: &[String]) -> Result<()> {
     let waves = compute_waves(&graph)?;
     let total = graph.members.len();
 
-    eprintln!(
-        "[rx] workspace: {total} members, {} wave(s)",
-        waves.len()
-    );
+    eprintln!("[rx] workspace: {total} members, {} wave(s)", waves.len());
 
     let failed = Arc::new(Mutex::new(Vec::<String>::new()));
 
@@ -408,11 +399,7 @@ fn run_across_workspace(cargo_cmd: &str, extra_args: &[String]) -> Result<()> {
 
         if !failed.lock().unwrap().is_empty() {
             let failures = failed.lock().unwrap();
-            anyhow::bail!(
-                "failed in wave {}: {}",
-                wave_idx + 1,
-                failures.join(", ")
-            );
+            anyhow::bail!("failed in wave {}: {}", wave_idx + 1, failures.join(", "));
         }
     }
 
@@ -441,7 +428,6 @@ fn exec_across_workspace(cmd_parts: &[String]) -> Result<()> {
     Ok(())
 }
 
-
 /// Run a named script from rx.toml across workspace members.
 fn run_script(name: &str, packages: &[String]) -> Result<()> {
     let graph = resolve_workspace()?;
@@ -464,9 +450,7 @@ fn run_script(name: &str, packages: &[String]) -> Result<()> {
                 .arg(script)
                 .current_dir(&member.path)
                 .status()
-                .with_context(|| {
-                    format!("failed to run script '{name}' in {}", member.name)
-                })?;
+                .with_context(|| format!("failed to run script '{name}' in {}", member.name))?;
 
             if !status.success() {
                 anyhow::bail!("script '{name}' failed in {}", member.name);
