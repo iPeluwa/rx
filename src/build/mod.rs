@@ -34,6 +34,10 @@ fn resolve_linker(config: &RxConfig) -> Option<String> {
 }
 
 /// Build the full RUSTFLAGS string from config + linker.
+pub fn build_rustflags_pub(config: &RxConfig) -> Option<String> {
+    build_rustflags(config)
+}
+
 fn build_rustflags(config: &RxConfig) -> Option<String> {
     let mut flags = Vec::new();
 

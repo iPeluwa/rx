@@ -213,6 +213,21 @@ pub fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
     }
 }
 
+const KNOWN_TOP_KEYS: &[&str] = &["build", "test", "lint", "fmt", "watch", "scripts", "env"];
+
+/// Warn about unknown top-level keys in a config file.
+fn warn_unknown_keys(path: &Path) {
+    if let Ok(contents) = fs::read_to_string(path) {
+        if let Ok(table) = contents.parse::<toml::Table>() {
+            for key in table.keys() {
+                if !KNOWN_TOP_KEYS.contains(&key.as_str()) {
+                    crate::output::warn(&format!("unknown key `{key}` in {}", path.display()));
+                }
+            }
+        }
+    }
+}
+
 /// Load the resolved config (global merged with project-level).
 pub fn load() -> Result<RxConfig> {
     let global = match global_config_path() {
@@ -221,7 +236,10 @@ pub fn load() -> Result<RxConfig> {
     };
 
     let project = match find_project_config() {
-        Some(path) => load_from_path(&path)?,
+        Some(path) => {
+            warn_unknown_keys(&path);
+            load_from_path(&path)?
+        }
         None => RxConfig::default(),
     };
 

@@ -252,3 +252,65 @@ fn parse_run_with_passthrough_args() {
         _ => panic!("expected Run"),
     }
 }
+
+#[test]
+fn parse_check() {
+    let cli = parse(&["check", "--package", "core"]);
+    match cli.command {
+        rx::cli::Command::Check { package } => {
+            assert_eq!(package.unwrap(), "core");
+        }
+        _ => panic!("expected Check"),
+    }
+}
+
+#[test]
+fn parse_fix() {
+    let cli = parse(&["fix"]);
+    assert!(matches!(cli.command, rx::cli::Command::Fix));
+}
+
+#[test]
+fn parse_ci() {
+    let cli = parse(&["ci"]);
+    assert!(matches!(cli.command, rx::cli::Command::Ci));
+}
+
+#[test]
+fn parse_size_release() {
+    let cli = parse(&["size", "--release"]);
+    match cli.command {
+        rx::cli::Command::Size { release } => assert!(release),
+        _ => panic!("expected Size"),
+    }
+}
+
+#[test]
+fn parse_tree_duplicates() {
+    let cli = parse(&["tree", "--duplicates", "--depth", "3"]);
+    match cli.command {
+        rx::cli::Command::Tree { duplicates, depth } => {
+            assert!(duplicates);
+            assert_eq!(depth, Some(3));
+        }
+        _ => panic!("expected Tree"),
+    }
+}
+
+#[test]
+fn parse_outdated() {
+    let cli = parse(&["outdated"]);
+    assert!(matches!(cli.command, rx::cli::Command::Outdated));
+}
+
+#[test]
+fn parse_audit() {
+    let cli = parse(&["audit"]);
+    assert!(matches!(cli.command, rx::cli::Command::Audit));
+}
+
+#[test]
+fn parse_self_update() {
+    let cli = parse(&["self-update"]);
+    assert!(matches!(cli.command, rx::cli::Command::SelfUpdate));
+}

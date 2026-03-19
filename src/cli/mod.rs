@@ -144,6 +144,46 @@ pub enum Command {
     /// Update toolchains and dependencies
     Upgrade,
 
+    /// Type-check the project without building
+    Check {
+        /// Package to check (in a workspace)
+        #[arg(long, short)]
+        package: Option<String>,
+    },
+
+    /// Auto-fix lint warnings, compiler suggestions, and formatting
+    Fix,
+
+    /// Run the full CI pipeline locally (fmt, clippy, test, build)
+    Ci,
+
+    /// Show binary size (and cargo-bloat breakdown if available)
+    Size {
+        /// Measure release binary
+        #[arg(long, short)]
+        release: bool,
+    },
+
+    /// Show the dependency tree
+    Tree {
+        /// Show only duplicate dependencies
+        #[arg(long, short)]
+        duplicates: bool,
+        /// Limit tree depth
+        #[arg(long)]
+        depth: Option<u32>,
+    },
+
+    /// Check for outdated dependencies
+    Outdated,
+
+    /// Audit dependencies for known security vulnerabilities
+    Audit,
+
+    /// Update rx to the latest version
+    #[command(name = "self-update")]
+    SelfUpdate,
+
     /// Generate shell completions
     Completions {
         /// Shell to generate completions for
@@ -240,20 +280,33 @@ pub enum WsCommand {
     },
 }
 
+/// Load config and apply env vars.
+fn load_config() -> Result<crate::config::RxConfig> {
+    let config = crate::config::load()?;
+    // SAFETY: rx is single-threaded at this point (before any thread spawning)
+    for (key, value) in &config.env {
+        unsafe { std::env::set_var(key, value) };
+    }
+    Ok(config)
+}
+
 pub fn dispatch(cli: Cli) -> Result<()> {
     // Set output verbosity
     crate::output::set_quiet(cli.quiet);
     crate::output::set_verbose(cli.verbose);
 
-    let config = crate::config::load()?;
-
-    // Apply env vars from config
-    // SAFETY: rx is single-threaded at this point (before any thread spawning)
-    for (key, value) in &config.env {
-        unsafe { std::env::set_var(key, value) };
-    }
-
-    match cli.command {
+    // Commands that don't need config
+    match &cli.command {
+        Command::Doctor => return crate::doctor::doctor(),
+        Command::SelfUpdate => return crate::selfupdate::self_update(),
+        Command::Completions { shell } => {
+            return crate::completions::generate_completions(*shell);
+        }
+        Command::Outdated => return crate::outdated::outdated(),
+        Command::Audit => return crate::audit::audit(),
+        Command::Tree { duplicates, depth } => return crate::tree::tree(*duplicates, *depth),
+        Command::Size { release } => return crate::size::size(*release),
+        Command::New { name, lib } => return crate::workspace::new_project(name, *lib),
         Command::Init => {
             let path = std::env::current_dir()?.join("rx.toml");
             if path.exists() {
@@ -261,10 +314,16 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             }
             crate::config::init_config(&path)?;
             crate::output::success("created rx.toml");
-            Ok(())
+            return Ok(());
         }
+        _ => {}
+    }
+
+    // Commands that need config
+    let config = load_config()?;
+
+    match cli.command {
         Command::Config => crate::config::show(&config),
-        Command::New { name, lib } => crate::workspace::new_project(&name, lib),
         Command::Build {
             release,
             package,
@@ -278,6 +337,9 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         } => crate::test::test(filter.as_deref(), package.as_deref(), release, &config),
         Command::Fmt { check } => crate::fmt::fmt(check, &config),
         Command::Lint { fix } => crate::lint::lint(fix, &config),
+        Command::Check { package } => crate::check::check(package.as_deref(), &config),
+        Command::Fix => crate::fix::fix(&config),
+        Command::Ci => crate::ci::ci(&config),
         Command::Bench { filter, package } => {
             crate::bench::bench(filter.as_deref(), package.as_deref())
         }
@@ -291,8 +353,16 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Ws(cmd) => crate::workspace::dispatch(cmd),
         Command::Watch { cmd } => crate::watch::watch(cmd.as_deref(), &config),
         Command::Clean { gc } => crate::cache::clean(gc),
-        Command::Doctor => crate::doctor::doctor(),
         Command::Upgrade => crate::upgrade::upgrade(),
-        Command::Completions { shell } => crate::completions::generate_completions(shell),
+        // Already handled above
+        Command::Doctor
+        | Command::SelfUpdate
+        | Command::Completions { .. }
+        | Command::Outdated
+        | Command::Audit
+        | Command::Tree { .. }
+        | Command::Size { .. }
+        | Command::New { .. }
+        | Command::Init => unreachable!(),
     }
 }
