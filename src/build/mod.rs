@@ -131,7 +131,12 @@ fn collect_artifacts(target_dir: &Path, profile: &str) -> Result<Vec<(String, Pa
     Ok(artifacts)
 }
 
-pub fn build(release: bool, package: Option<&str>, config: &RxConfig) -> Result<()> {
+pub fn build(
+    release: bool,
+    package: Option<&str>,
+    target: Option<&str>,
+    config: &RxConfig,
+) -> Result<()> {
     let project_root = find_project_root()?;
     let profile = if release { "release" } else { "debug" };
     let flags = build_rustflags(config);
@@ -144,14 +149,20 @@ pub fn build(release: bool, package: Option<&str>, config: &RxConfig) -> Result<
         if let Some(cached) = cache::lookup_build(&fingerprint)? {
             let target_dir = project_root.join("target").join(profile);
             let count = cache::restore_build(&cached, &target_dir)?;
-            eprintln!("[rx] cache hit: restored {count} artifact(s) from global cache");
+            crate::output::success(&format!(
+                "cache hit: restored {count} artifact(s) from global cache"
+            ));
             return Ok(());
         }
     }
 
     // Report linker
     if let Some(linker) = resolve_linker(config) {
-        eprintln!("[rx] using linker: {linker}");
+        crate::output::step("build", &format!("using linker: {linker}"));
+    }
+
+    if let Some(t) = target {
+        crate::output::step("build", &format!("cross-compiling for {t}"));
     }
 
     let mut cmd = cargo_cmd(config);
@@ -162,6 +173,9 @@ pub fn build(release: bool, package: Option<&str>, config: &RxConfig) -> Result<
     }
     if let Some(pkg) = package {
         cmd.args(["--package", pkg]);
+    }
+    if let Some(t) = target {
+        cmd.args(["--target", t]);
     }
 
     let status = cmd.status().context("failed to run cargo build")?;
@@ -176,10 +190,10 @@ pub fn build(release: bool, package: Option<&str>, config: &RxConfig) -> Result<
         let artifacts = collect_artifacts(&target_dir, profile)?;
         if !artifacts.is_empty() {
             cache::store_build(&fingerprint, &artifacts)?;
-            eprintln!(
-                "[rx] cached {} artifact(s) for future builds",
+            crate::output::info(&format!(
+                "cached {} artifact(s) for future builds",
                 artifacts.len()
-            );
+            ));
         }
     }
 
@@ -199,14 +213,14 @@ pub fn run(release: bool, args: &[String], config: &RxConfig) -> Result<()> {
         if let Some(cached) = cache::lookup_build(&fingerprint)? {
             let target_dir = project_root.join("target").join(profile);
             let count = cache::restore_build(&cached, &target_dir)?;
-            eprintln!("[rx] cache hit: restored {count} artifact(s)");
+            crate::output::success(&format!("cache hit: restored {count} artifact(s)"));
             needs_build = false;
         }
     }
 
     if needs_build {
         if let Some(linker) = resolve_linker(config) {
-            eprintln!("[rx] using linker: {linker}");
+            crate::output::step("build", &format!("using linker: {linker}"));
         }
 
         let mut cmd = cargo_cmd(config);
@@ -226,10 +240,10 @@ pub fn run(release: bool, args: &[String], config: &RxConfig) -> Result<()> {
             let artifacts = collect_artifacts(&target_dir, profile)?;
             if !artifacts.is_empty() {
                 cache::store_build(&fingerprint, &artifacts)?;
-                eprintln!(
-                    "[rx] cached {} artifact(s) for future builds",
+                crate::output::info(&format!(
+                    "cached {} artifact(s) for future builds",
                     artifacts.len()
-                );
+                ));
             }
         }
     }

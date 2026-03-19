@@ -9,9 +9,9 @@ pub fn fmt(check: bool, config: &RxConfig) -> Result<()> {
 
     if check {
         cmd.arg("--check");
-        eprintln!("[rx] checking formatting...");
+        crate::output::info("checking formatting...");
     } else {
-        eprintln!("[rx] formatting code...");
+        crate::output::info("formatting code...");
     }
 
     for arg in &config.fmt.extra_args {

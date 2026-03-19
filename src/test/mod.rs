@@ -26,10 +26,10 @@ pub fn test(
     let mut cmd = Command::new("cargo");
     if use_nextest {
         cmd.arg("nextest").arg("run");
-        eprintln!("[rx] running tests with nextest...");
+        crate::output::info("running tests with nextest...");
     } else {
         cmd.arg("test");
-        eprintln!("[rx] running tests...");
+        crate::output::info("running tests...");
     }
 
     if release {

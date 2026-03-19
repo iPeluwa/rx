@@ -17,7 +17,7 @@ fn add(spec: &str, dev: bool, build: bool) -> Result<()> {
     // Support `serde@1.0` syntax — translate to cargo's `serde@1.0`
     cmd.arg(spec);
 
-    eprintln!("[rx] adding dependency: {spec}");
+    crate::output::info(&format!("adding dependency: {spec}"));
     let status = cmd.status().context("failed to run cargo add")?;
     if !status.success() {
         anyhow::bail!("failed to add {spec}");
@@ -26,7 +26,7 @@ fn add(spec: &str, dev: bool, build: bool) -> Result<()> {
 }
 
 fn remove(name: &str) -> Result<()> {
-    eprintln!("[rx] removing dependency: {name}");
+    crate::output::info(&format!("removing dependency: {name}"));
     let status = Command::new("cargo")
         .args(["remove", name])
         .status()
@@ -44,9 +44,9 @@ fn upgrade(name: Option<&str>) -> Result<()> {
 
     if let Some(pkg) = name {
         cmd.args(["--package", pkg]);
-        eprintln!("[rx] upgrading: {pkg}");
+        crate::output::info(&format!("upgrading: {pkg}"));
     } else {
-        eprintln!("[rx] upgrading all dependencies...");
+        crate::output::info("upgrading all dependencies...");
     }
 
     let status = cmd.status().context("failed to run cargo update")?;

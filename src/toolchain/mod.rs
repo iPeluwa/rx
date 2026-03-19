@@ -15,7 +15,7 @@ fn ensure_rustup() -> Result<()> {
 
 fn install(version: &str) -> Result<()> {
     ensure_rustup()?;
-    eprintln!("[rx] installing toolchain: {version}");
+    crate::output::info(&format!("installing toolchain: {version}"));
     let status = Command::new("rustup")
         .args(["toolchain", "install", version])
         .status()
@@ -28,7 +28,7 @@ fn install(version: &str) -> Result<()> {
 
 fn use_toolchain(version: &str) -> Result<()> {
     ensure_rustup()?;
-    eprintln!("[rx] setting default toolchain: {version}");
+    crate::output::info(&format!("setting default toolchain: {version}"));
     let status = Command::new("rustup")
         .args(["default", version])
         .status()
@@ -53,7 +53,7 @@ fn list() -> Result<()> {
 
 fn update() -> Result<()> {
     ensure_rustup()?;
-    eprintln!("[rx] updating all toolchains...");
+    crate::output::info("updating all toolchains...");
     let status = Command::new("rustup")
         .arg("update")
         .status()

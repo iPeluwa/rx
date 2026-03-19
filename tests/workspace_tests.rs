@@ -47,7 +47,10 @@ fn topo_sort_single_member() {
 #[test]
 fn topo_sort_linear_chain() {
     // core <- utils <- app
-    let graph = make_graph(&["core", "utils", "app"], &[("utils", "core"), ("app", "utils")]);
+    let graph = make_graph(
+        &["core", "utils", "app"],
+        &[("utils", "core"), ("app", "utils")],
+    );
     let sorted = rx::workspace::topo_sort(&graph).unwrap();
     let names: Vec<&str> = sorted.iter().map(|m| m.name.as_str()).collect();
 
@@ -123,7 +126,10 @@ fn waves_all_independent() {
 
 #[test]
 fn waves_linear_chain() {
-    let graph = make_graph(&["core", "utils", "app"], &[("utils", "core"), ("app", "utils")]);
+    let graph = make_graph(
+        &["core", "utils", "app"],
+        &[("utils", "core"), ("app", "utils")],
+    );
     let waves = rx::workspace::parallel_waves(&graph).unwrap();
     assert_eq!(waves.len(), 3);
     assert_eq!(waves[0].len(), 1);
@@ -175,13 +181,7 @@ fn waves_complex_graph() {
     // a (no deps), b -> a, c -> a, d -> b + c, e -> d
     let graph = make_graph(
         &["a", "b", "c", "d", "e"],
-        &[
-            ("b", "a"),
-            ("c", "a"),
-            ("d", "b"),
-            ("d", "c"),
-            ("e", "d"),
-        ],
+        &[("b", "a"), ("c", "a"), ("d", "b"), ("d", "c"), ("e", "d")],
     );
     let waves = rx::workspace::parallel_waves(&graph).unwrap();
 

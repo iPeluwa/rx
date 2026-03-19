@@ -5,12 +5,13 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use walkdir::WalkDir;
 
 use crate::cli::CacheCommand;
 
 // ---------------------------------------------------------------------------
-// Cache index (tracks all stored artifacts for GC and status)
+// Cache index
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize)]
@@ -25,6 +26,15 @@ struct CacheIndex {
     artifacts: HashMap<String, ArtifactEntry>,
 }
 
+/// Mtime snapshot for fast-path cache invalidation.
+#[derive(Serialize, Deserialize, Default)]
+struct MtimeSnapshot {
+    /// Maps relative file path -> (mtime_secs, file_size)
+    files: HashMap<String, (u64, u64)>,
+    /// The fingerprint hash that was computed for this snapshot
+    fingerprint: String,
+}
+
 pub fn cache_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().context("could not determine home directory")?;
     Ok(home.join(".rx").join("cache"))
@@ -32,6 +42,14 @@ pub fn cache_dir() -> Result<PathBuf> {
 
 fn index_path() -> Result<PathBuf> {
     Ok(cache_dir()?.join("index.toml"))
+}
+
+fn mtime_path(project_root: &Path) -> Result<PathBuf> {
+    // Store mtime snapshot per-project, keyed by a hash of the project path
+    let mut hasher = Sha256::new();
+    hasher.update(project_root.to_string_lossy().as_bytes());
+    let key = hex::encode(&hasher.finalize()[..8]);
+    Ok(cache_dir()?.join("mtimes").join(format!("{key}.toml")))
 }
 
 fn load_index() -> Result<CacheIndex> {
@@ -53,20 +71,145 @@ fn save_index(index: &CacheIndex) -> Result<()> {
     Ok(())
 }
 
+fn load_mtime_snapshot(project_root: &Path) -> Result<Option<MtimeSnapshot>> {
+    let path = mtime_path(project_root)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let contents = fs::read_to_string(&path)?;
+    Ok(Some(toml::from_str(&contents)?))
+}
+
+fn save_mtime_snapshot(project_root: &Path, snapshot: &MtimeSnapshot) -> Result<()> {
+    let path = mtime_path(project_root)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let contents = toml::to_string_pretty(snapshot)?;
+    fs::write(&path, contents)?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
-// Build fingerprinting
+// Build fingerprinting with mtime fast-path
 // ---------------------------------------------------------------------------
 
+fn file_mtime_secs(path: &Path) -> u64 {
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn file_size(path: &Path) -> u64 {
+    fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+}
+
+/// Collect all input files with their mtime and size.
+fn collect_input_files(project_root: &Path) -> Vec<(String, u64, u64)> {
+    let mut files = Vec::new();
+
+    for name in ["Cargo.toml", "Cargo.lock"] {
+        let p = project_root.join(name);
+        if p.exists() {
+            files.push((name.to_string(), file_mtime_secs(&p), file_size(&p)));
+        }
+    }
+
+    let src_dir = project_root.join("src");
+    if src_dir.exists() {
+        let mut rs_files: Vec<PathBuf> = WalkDir::new(&src_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
+            .map(|e| e.into_path())
+            .collect();
+        rs_files.sort();
+
+        for file in rs_files {
+            let rel = file
+                .strip_prefix(project_root)
+                .unwrap_or(&file)
+                .to_string_lossy()
+                .to_string();
+            files.push((rel, file_mtime_secs(&file), file_size(&file)));
+        }
+    }
+
+    files
+}
+
+/// Try to use mtime-based fast path. Returns the cached fingerprint if nothing changed.
+fn try_mtime_fast_path(
+    project_root: &Path,
+    profile: &str,
+    rustflags: Option<&str>,
+) -> Option<String> {
+    let snapshot = load_mtime_snapshot(project_root).ok()??;
+
+    // Check profile/flags match by verifying the stored fingerprint is for the same config
+    let current_files = collect_input_files(project_root);
+
+    // Build a map of current state
+    let current_map: HashMap<&str, (u64, u64)> = current_files
+        .iter()
+        .map(|(path, mtime, size)| (path.as_str(), (*mtime, *size)))
+        .collect();
+
+    // Check if file set and mtimes match exactly
+    if current_map.len() != snapshot.files.len() {
+        return None;
+    }
+
+    for (path, (mtime, size)) in &snapshot.files {
+        match current_map.get(path.as_str()) {
+            Some(&(cur_mtime, cur_size)) if cur_mtime == *mtime && cur_size == *size => {}
+            _ => return None,
+        }
+    }
+
+    // Mtimes match — verify the profile/flags are the same by recomputing a config hash
+    let mut config_hasher = Sha256::new();
+    config_hasher.update(profile.as_bytes());
+    config_hasher.update(b"\0");
+    if let Some(flags) = rustflags {
+        config_hasher.update(flags.as_bytes());
+    }
+    let config_hash = hex::encode(&config_hasher.finalize()[..8]);
+
+    if snapshot.fingerprint.starts_with(&config_hash) {
+        Some(snapshot.fingerprint.clone())
+    } else {
+        None
+    }
+}
+
 /// Compute a fingerprint for the current project state.
-/// Inputs: Cargo.toml, Cargo.lock, all .rs source files, profile, rustflags.
+/// Uses mtime fast-path when possible, falls back to full content hashing.
 pub fn compute_build_fingerprint(
     project_root: &Path,
     profile: &str,
     rustflags: Option<&str>,
 ) -> Result<String> {
+    // Try fast path first
+    if let Some(fp) = try_mtime_fast_path(project_root, profile, rustflags) {
+        return Ok(fp);
+    }
+
+    // Full hash
     let mut hasher = Sha256::new();
 
-    // Hash profile and flags
+    // Config prefix (used for mtime validation)
+    let mut config_hasher = Sha256::new();
+    config_hasher.update(profile.as_bytes());
+    config_hasher.update(b"\0");
+    if let Some(flags) = rustflags {
+        config_hasher.update(flags.as_bytes());
+    }
+    let config_prefix = hex::encode(&config_hasher.finalize()[..8]);
+
     hasher.update(profile.as_bytes());
     hasher.update(b"\0");
     if let Some(flags) = rustflags {
@@ -74,21 +217,18 @@ pub fn compute_build_fingerprint(
     }
     hasher.update(b"\0");
 
-    // Hash Cargo.toml
     let cargo_toml = project_root.join("Cargo.toml");
     if cargo_toml.exists() {
         hasher.update(fs::read(&cargo_toml)?);
     }
     hasher.update(b"\0");
 
-    // Hash Cargo.lock
     let cargo_lock = project_root.join("Cargo.lock");
     if cargo_lock.exists() {
         hasher.update(fs::read(&cargo_lock)?);
     }
     hasher.update(b"\0");
 
-    // Hash all .rs files sorted for determinism
     let src_dir = project_root.join("src");
     if src_dir.exists() {
         let mut rs_files: Vec<PathBuf> = WalkDir::new(&src_dir)
@@ -100,7 +240,6 @@ pub fn compute_build_fingerprint(
         rs_files.sort();
 
         for file in &rs_files {
-            // Include the relative path so renames invalidate
             let rel = file.strip_prefix(project_root).unwrap_or(file);
             hasher.update(rel.to_string_lossy().as_bytes());
             hasher.update(b"\0");
@@ -109,7 +248,22 @@ pub fn compute_build_fingerprint(
         }
     }
 
-    Ok(hex::encode(hasher.finalize()))
+    let content_hash = hex::encode(hasher.finalize());
+    let fingerprint = format!("{config_prefix}{content_hash}");
+
+    // Save mtime snapshot for future fast-path
+    let input_files = collect_input_files(project_root);
+    let files: HashMap<String, (u64, u64)> = input_files
+        .into_iter()
+        .map(|(path, mtime, size)| (path, (mtime, size)))
+        .collect();
+    let snapshot = MtimeSnapshot {
+        files,
+        fingerprint: fingerprint.clone(),
+    };
+    save_mtime_snapshot(project_root, &snapshot).ok();
+
+    Ok(fingerprint)
 }
 
 /// Directory where cached build outputs for a given fingerprint are stored.
@@ -120,12 +274,9 @@ fn build_cache_dir(fingerprint: &str) -> Result<PathBuf> {
         .join(fingerprint))
 }
 
-/// Check if we have cached build outputs for this fingerprint.
-/// Returns the cache directory if it exists and contains files.
 pub fn lookup_build(fingerprint: &str) -> Result<Option<PathBuf>> {
     let dir = build_cache_dir(fingerprint)?;
     if dir.exists() && fs::read_dir(&dir)?.next().is_some() {
-        // Update last-accessed in the index
         let mut index = load_index()?;
         if let Some(entry) = index.artifacts.get_mut(fingerprint) {
             entry.last_accessed = Utc::now();
@@ -137,9 +288,6 @@ pub fn lookup_build(fingerprint: &str) -> Result<Option<PathBuf>> {
     }
 }
 
-/// Store build outputs into the cache.
-/// `artifacts` is a list of (filename, source_path) pairs — typically final
-/// binaries, dylibs, and rlibs from target/{profile}/.
 pub fn store_build(fingerprint: &str, artifacts: &[(String, PathBuf)]) -> Result<PathBuf> {
     let dir = build_cache_dir(fingerprint)?;
     fs::create_dir_all(&dir)?;
@@ -147,7 +295,6 @@ pub fn store_build(fingerprint: &str, artifacts: &[(String, PathBuf)]) -> Result
     let mut total_size: u64 = 0;
     for (name, source) in artifacts {
         let dest = dir.join(name);
-        // Try hardlink first (same filesystem = free), fall back to copy
         if fs::hard_link(source, &dest).is_err() {
             fs::copy(source, &dest).with_context(|| format!("failed to cache artifact {name}"))?;
         }
@@ -168,8 +315,6 @@ pub fn store_build(fingerprint: &str, artifacts: &[(String, PathBuf)]) -> Result
     Ok(dir)
 }
 
-/// Restore cached artifacts into the target directory.
-/// Uses hardlinks when possible.
 pub fn restore_build(cache_path: &Path, target_dir: &Path) -> Result<usize> {
     fs::create_dir_all(target_dir)?;
     let mut count = 0;
@@ -183,7 +328,6 @@ pub fn restore_build(cache_path: &Path, target_dir: &Path) -> Result<usize> {
         let name = entry.file_name();
         let dest = target_dir.join(&name);
 
-        // Remove existing file so we can link
         if dest.exists() {
             fs::remove_file(&dest).ok();
         }
@@ -247,7 +391,6 @@ fn gc(older_than_days: u32) -> Result<()> {
     for key in &stale_keys {
         if let Some(entry) = index.artifacts.remove(key) {
             freed += entry.size;
-            // Remove build cache directory
             if let Ok(dir) = build_cache_dir(&entry.content_hash)
                 && dir.exists()
             {
@@ -257,11 +400,11 @@ fn gc(older_than_days: u32) -> Result<()> {
     }
 
     save_index(&index)?;
-    println!(
-        "Removed {} stale artifacts, freed {:.1} MB",
+    crate::output::success(&format!(
+        "removed {} stale artifacts, freed {:.1} MB",
         stale_keys.len(),
         freed as f64 / 1_048_576.0
-    );
+    ));
     Ok(())
 }
 
@@ -269,7 +412,7 @@ fn purge() -> Result<()> {
     let dir = cache_dir()?;
     if dir.exists() {
         fs::remove_dir_all(&dir).context("failed to purge cache")?;
-        println!("Cache purged: {}", dir.display());
+        crate::output::success(&format!("cache purged: {}", dir.display()));
     } else {
         println!("Nothing to purge.");
     }
@@ -292,10 +435,10 @@ pub fn clean(gc_cache: bool) -> Result<()> {
     if !status.success() {
         anyhow::bail!("cargo clean failed");
     }
-    println!("Cleaned local target/ directory.");
+    crate::output::success("cleaned local target/ directory");
 
     if gc_cache {
-        println!("Running global cache GC...");
+        crate::output::info("running global cache GC...");
         gc(30)?;
     }
     Ok(())

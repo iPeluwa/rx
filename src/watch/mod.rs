@@ -18,7 +18,9 @@ pub fn watch(cmd: Option<&str>, config: &RxConfig) -> Result<()> {
 
     // CLI flag overrides config, config overrides default
     let watch_cmd = cmd.unwrap_or(config.watch.cmd.as_str());
-    eprintln!("[rx] watching for changes (running: cargo {watch_cmd})...");
+    crate::output::info(&format!(
+        "watching for changes (running: cargo {watch_cmd})..."
+    ));
 
     let mut watch = Command::new("cargo");
     watch.args(["watch", "-x", watch_cmd]);

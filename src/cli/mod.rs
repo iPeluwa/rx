@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use clap_complete::Shell;
 
 #[derive(Parser)]
 #[command(name = "rx", version, about = "A fast, unified Rust toolchain manager")]
@@ -33,6 +34,9 @@ pub enum Command {
         /// Package to build (in a workspace)
         #[arg(long, short)]
         package: Option<String>,
+        /// Cross-compile for a target triple (e.g. x86_64-unknown-linux-gnu)
+        #[arg(long)]
+        target: Option<String>,
     },
 
     /// Build and run the project
@@ -71,6 +75,31 @@ pub enum Command {
         fix: bool,
     },
 
+    /// Run benchmarks
+    Bench {
+        /// Benchmark filter
+        filter: Option<String>,
+        /// Package to benchmark (in a workspace)
+        #[arg(long, short)]
+        package: Option<String>,
+    },
+
+    /// Expand macros (requires cargo-expand)
+    Expand {
+        /// Item path to expand (e.g. module::function)
+        item: Option<String>,
+    },
+
+    /// Publish crate(s) to crates.io
+    Publish {
+        /// Package to publish (publishes entire workspace in order if omitted)
+        #[arg(long, short)]
+        package: Option<String>,
+        /// Perform a dry run without actually publishing
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Manage dependencies
     #[command(subcommand)]
     Pkg(PkgCommand),
@@ -99,6 +128,18 @@ pub enum Command {
         /// Also garbage-collect the global cache
         #[arg(long)]
         gc: bool,
+    },
+
+    /// Check your development environment
+    Doctor,
+
+    /// Update toolchains and dependencies
+    Upgrade,
+
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        shell: Shell,
     },
 }
 
@@ -207,14 +248,16 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 anyhow::bail!("rx.toml already exists");
             }
             crate::config::init_config(&path)?;
-            eprintln!("[rx] created rx.toml");
+            crate::output::success("created rx.toml");
             Ok(())
         }
         Command::Config => crate::config::show(&config),
         Command::New { name, lib } => crate::workspace::new_project(&name, lib),
-        Command::Build { release, package } => {
-            crate::build::build(release, package.as_deref(), &config)
-        }
+        Command::Build {
+            release,
+            package,
+            target,
+        } => crate::build::build(release, package.as_deref(), target.as_deref(), &config),
         Command::Run { release, args } => crate::build::run(release, &args, &config),
         Command::Test {
             filter,
@@ -223,11 +266,21 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         } => crate::test::test(filter.as_deref(), package.as_deref(), release, &config),
         Command::Fmt { check } => crate::fmt::fmt(check, &config),
         Command::Lint { fix } => crate::lint::lint(fix, &config),
+        Command::Bench { filter, package } => {
+            crate::bench::bench(filter.as_deref(), package.as_deref())
+        }
+        Command::Expand { item } => crate::expand::expand(item.as_deref()),
+        Command::Publish { package, dry_run } => {
+            crate::publish::publish(package.as_deref(), dry_run)
+        }
         Command::Pkg(cmd) => crate::pkg::dispatch(cmd),
         Command::Toolchain(cmd) => crate::toolchain::dispatch(cmd),
         Command::Cache(cmd) => crate::cache::dispatch(cmd),
         Command::Ws(cmd) => crate::workspace::dispatch(cmd),
         Command::Watch { cmd } => crate::watch::watch(cmd.as_deref(), &config),
         Command::Clean { gc } => crate::cache::clean(gc),
+        Command::Doctor => crate::doctor::doctor(),
+        Command::Upgrade => crate::upgrade::upgrade(),
+        Command::Completions { shell } => crate::completions::generate_completions(shell),
     }
 }

@@ -346,19 +346,21 @@ fn run_across_workspace(cargo_cmd: &str, extra_args: &[String]) -> Result<()> {
     let waves = compute_waves(&graph)?;
     let total = graph.members.len();
 
-    eprintln!("[rx] workspace: {total} members, {} wave(s)", waves.len());
+    crate::output::info(&format!(
+        "workspace: {total} members, {} wave(s)",
+        waves.len()
+    ));
 
     let failed = Arc::new(Mutex::new(Vec::<String>::new()));
 
     for (wave_idx, wave) in waves.iter().enumerate() {
-        eprintln!(
-            "[rx] wave {}/{}: {}",
-            wave_idx + 1,
-            waves.len(),
-            wave.iter()
+        crate::output::step(
+            &format!("wave {}/{}", wave_idx + 1, waves.len()),
+            &wave
+                .iter()
                 .map(|m| m.name.as_str())
                 .collect::<Vec<_>>()
-                .join(", ")
+                .join(", "),
         );
 
         if wave.len() == 1 {
@@ -403,7 +405,9 @@ fn run_across_workspace(cargo_cmd: &str, extra_args: &[String]) -> Result<()> {
         }
     }
 
-    eprintln!("[rx] workspace: all {total} members completed successfully");
+    crate::output::success(&format!(
+        "workspace: all {total} members completed successfully"
+    ));
     Ok(())
 }
 
@@ -413,7 +417,7 @@ fn exec_across_workspace(cmd_parts: &[String]) -> Result<()> {
     let sorted = topo_sort(&graph)?;
 
     for member in sorted {
-        eprintln!("[rx] {} > {}", member.name, cmd_parts.join(" "));
+        crate::output::step(&member.name, &cmd_parts.join(" "));
         let status = Command::new("sh")
             .arg("-c")
             .arg(cmd_parts.join(" "))
@@ -444,7 +448,7 @@ fn run_script(name: &str, packages: &[String]) -> Result<()> {
         let config = crate::config::load_for_dir(&member.path)?;
         if let Some(script) = config.scripts.get(name) {
             found_any = true;
-            eprintln!("[rx] {} > {script}", member.name);
+            crate::output::step(&member.name, script);
             let status = Command::new("sh")
                 .arg("-c")
                 .arg(script)
@@ -459,7 +463,9 @@ fn run_script(name: &str, packages: &[String]) -> Result<()> {
     }
 
     if !found_any {
-        eprintln!("[rx] no workspace members define script '{name}' in rx.toml");
+        crate::output::warn(&format!(
+            "no workspace members define script '{name}' in rx.toml"
+        ));
     }
     Ok(())
 }
@@ -506,14 +512,13 @@ pub fn new_project(name: &str, lib: bool) -> Result<()> {
         cmd.arg("--lib");
     }
 
-    eprintln!("[rx] creating project: {name}");
+    crate::output::info(&format!("creating project: {name}"));
     let status = cmd.status().context("failed to run cargo new")?;
     if !status.success() {
         anyhow::bail!("failed to create project {name}");
     }
 
-    eprintln!("[rx] project created at ./{name}");
-    eprintln!("[rx] get started:");
+    crate::output::success(&format!("project created at ./{name}"));
     eprintln!("  cd {name}");
     eprintln!("  rx run");
     Ok(())

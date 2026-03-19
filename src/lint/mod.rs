@@ -10,9 +10,9 @@ pub fn lint(fix: bool, config: &RxConfig) -> Result<()> {
     if fix {
         cmd.arg("--fix");
         cmd.arg("--allow-dirty");
-        eprintln!("[rx] applying lint fixes...");
+        crate::output::info("applying lint fixes...");
     } else {
-        eprintln!("[rx] linting...");
+        crate::output::info("linting...");
     }
 
     cmd.arg("--");
@@ -23,7 +23,9 @@ pub fn lint(fix: bool, config: &RxConfig) -> Result<()> {
         "warn" => cmd.args(["-W", "warnings"]),
         "allow" => cmd.args(["-A", "warnings"]),
         other => {
-            eprintln!("[rx] unknown lint severity '{other}', defaulting to deny");
+            crate::output::warn(&format!(
+                "unknown lint severity '{other}', defaulting to deny"
+            ));
             cmd.args(["-D", "warnings"])
         }
     };

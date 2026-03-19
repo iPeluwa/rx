@@ -11,9 +11,14 @@ fn parse(args: &[&str]) -> Cli {
 fn parse_build_defaults() {
     let cli = parse(&["build"]);
     match cli.command {
-        rx::cli::Command::Build { release, package } => {
+        rx::cli::Command::Build {
+            release,
+            package,
+            target,
+        } => {
             assert!(!release);
             assert!(package.is_none());
+            assert!(target.is_none());
         }
         _ => panic!("expected Build"),
     }
@@ -151,5 +156,74 @@ fn parse_ws_script_with_packages() {
             assert_eq!(packages, vec!["core", "utils"]);
         }
         _ => panic!("expected Ws Script"),
+    }
+}
+
+#[test]
+fn parse_build_target() {
+    let cli = parse(&["build", "--target", "x86_64-unknown-linux-gnu"]);
+    match cli.command {
+        rx::cli::Command::Build { target, .. } => {
+            assert_eq!(target.unwrap(), "x86_64-unknown-linux-gnu");
+        }
+        _ => panic!("expected Build"),
+    }
+}
+
+#[test]
+fn parse_doctor() {
+    let cli = parse(&["doctor"]);
+    assert!(matches!(cli.command, rx::cli::Command::Doctor));
+}
+
+#[test]
+fn parse_upgrade() {
+    let cli = parse(&["upgrade"]);
+    assert!(matches!(cli.command, rx::cli::Command::Upgrade));
+}
+
+#[test]
+fn parse_bench() {
+    let cli = parse(&["bench", "my_bench", "--package", "core"]);
+    match cli.command {
+        rx::cli::Command::Bench { filter, package } => {
+            assert_eq!(filter.unwrap(), "my_bench");
+            assert_eq!(package.unwrap(), "core");
+        }
+        _ => panic!("expected Bench"),
+    }
+}
+
+#[test]
+fn parse_expand() {
+    let cli = parse(&["expand", "my_module"]);
+    match cli.command {
+        rx::cli::Command::Expand { item } => {
+            assert_eq!(item.unwrap(), "my_module");
+        }
+        _ => panic!("expected Expand"),
+    }
+}
+
+#[test]
+fn parse_publish_dry_run() {
+    let cli = parse(&["publish", "--package", "core", "--dry-run"]);
+    match cli.command {
+        rx::cli::Command::Publish { package, dry_run } => {
+            assert_eq!(package.unwrap(), "core");
+            assert!(dry_run);
+        }
+        _ => panic!("expected Publish"),
+    }
+}
+
+#[test]
+fn parse_completions() {
+    let cli = parse(&["completions", "bash"]);
+    match cli.command {
+        rx::cli::Command::Completions { shell } => {
+            assert_eq!(shell, clap_complete::Shell::Bash);
+        }
+        _ => panic!("expected Completions"),
     }
 }
