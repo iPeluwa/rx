@@ -130,14 +130,14 @@ fn global_config_path() -> Option<PathBuf> {
     if path.exists() { Some(path) } else { None }
 }
 
-fn load_from_path(path: &Path) -> Result<RxConfig> {
+pub fn load_from_path(path: &Path) -> Result<RxConfig> {
     let contents =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     toml::from_str(&contents).with_context(|| format!("failed to parse {}", path.display()))
 }
 
 /// Merge two configs. Project-level values override global values.
-fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
+pub fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
     RxConfig {
         build: BuildConfig {
             linker: if project.build.linker != "auto" {
