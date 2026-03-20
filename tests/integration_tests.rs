@@ -170,10 +170,7 @@ fn integration_compat_runs() {
         "rx compat exited with unexpected code: {code}"
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        !stderr.contains("panicked"),
-        "rx compat panicked: {stderr}"
-    );
+    assert!(!stderr.contains("panicked"), "rx compat panicked: {stderr}");
 }
 
 #[test]

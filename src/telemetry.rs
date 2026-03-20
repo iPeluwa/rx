@@ -201,8 +201,10 @@ mod tests {
 
     #[test]
     fn telemetry_data_roundtrip_serialize() {
-        let mut data = TelemetryData::default();
-        data.enabled = true;
+        let mut data = TelemetryData {
+            enabled: true,
+            ..Default::default()
+        };
         data.commands.insert("build".to_string(), 5);
         data.features_used.push("remote-cache".to_string());
         data.total_invocations = 42;

@@ -110,7 +110,10 @@ pub fn start(foreground: bool) -> Result<()> {
             .stderr(process::Stdio::null())
             .spawn()
             .context("failed to spawn background daemon")?;
-        crate::output::success(&format!("daemon started in background (pid {})", child.id()));
+        crate::output::success(&format!(
+            "daemon started in background (pid {})",
+            child.id()
+        ));
         return Ok(());
     }
 
