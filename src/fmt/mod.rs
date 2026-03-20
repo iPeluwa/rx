@@ -6,6 +6,7 @@ use crate::output::Timer;
 
 pub fn fmt(check: bool, config: &RxConfig) -> Result<()> {
     let timer = Timer::start("fmt");
+    let start = std::time::Instant::now();
     let mut cmd = Command::new("cargo");
     cmd.arg("fmt");
 
@@ -25,11 +26,13 @@ pub fn fmt(check: bool, config: &RxConfig) -> Result<()> {
          hint: install rustfmt with `rustup component add rustfmt`",
     )?;
     if !status.success() {
+        crate::stats::record("fmt", start, false);
         if check {
             anyhow::bail!("formatting check failed — run `rx fmt` to fix");
         }
         anyhow::bail!("formatting failed");
     }
+    crate::stats::record("fmt", start, true);
     timer.finish();
     Ok(())
 }

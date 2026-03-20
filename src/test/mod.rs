@@ -19,6 +19,7 @@ pub fn test(
     config: &RxConfig,
 ) -> Result<()> {
     let timer = Timer::start("test");
+    let start = std::time::Instant::now();
     let use_nextest = match config.test.runner.as_str() {
         "nextest" => true,
         "cargo" => false,
@@ -59,8 +60,10 @@ pub fn test(
          hint: is cargo installed? run `rx doctor` to check",
     )?;
     if !status.success() {
+        crate::stats::record("test", start, false);
         anyhow::bail!("tests failed");
     }
+    crate::stats::record("test", start, true);
     timer.finish();
     Ok(())
 }

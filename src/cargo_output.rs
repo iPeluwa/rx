@@ -4,7 +4,6 @@ use std::io::BufRead;
 use std::process::{Command, Stdio};
 
 /// A parsed cargo JSON diagnostic message.
-#[allow(dead_code)]
 #[derive(Deserialize)]
 struct CargoMessage {
     reason: String,
@@ -18,34 +17,42 @@ struct CargoMessage {
     fresh: Option<bool>,
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize)]
 struct CargoTarget {
     name: String,
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize)]
 struct CompilerMessage {
+    #[allow(dead_code)]
     message: String,
     level: String,
     #[serde(default)]
     rendered: Option<String>,
+    #[serde(default)]
+    code: Option<DiagnosticCode>,
+}
+
+#[derive(Deserialize)]
+struct DiagnosticCode {
+    code: String,
 }
 
 /// Summary of a cargo build run, parsed from JSON output.
-#[allow(dead_code)]
 pub struct BuildSummary {
+    #[allow(dead_code)]
     pub compiled: Vec<String>,
+    #[allow(dead_code)]
     pub fresh: Vec<String>,
+    #[allow(dead_code)]
     pub warnings: usize,
+    #[allow(dead_code)]
     pub errors: usize,
     pub success: bool,
 }
 
 /// Run a cargo command with `--message-format=json` and parse the output,
-/// rendering a cleaner progress view.
-#[allow(dead_code)]
+/// rendering a cleaner progress view with smart error hints.
 pub fn run_cargo_json(args: &[&str], env_vars: &[(&str, &str)]) -> Result<BuildSummary> {
     let mut cmd = Command::new("cargo");
     cmd.args(args)
@@ -112,9 +119,14 @@ pub fn run_cargo_json(args: &[&str], env_vars: &[(&str, &str)]) -> Result<BuildS
                             if let Some(ref rendered) = message.rendered {
                                 eprint!("{rendered}");
                             }
+                            // Show smart hint for known error codes
+                            if let Some(ref code) = message.code {
+                                if let Some(hint) = crate::hints::get_hint(&code.code) {
+                                    eprintln!("\n  {} {hint}", "rx hint:".cyan());
+                                }
+                            }
                         }
                         _ => {
-                            // notes, help — only show in verbose mode
                             if let Some(ref rendered) = message.rendered {
                                 crate::output::verbose(&format!("{}", rendered.trim()));
                             }
@@ -127,10 +139,8 @@ pub fn run_cargo_json(args: &[&str], env_vars: &[(&str, &str)]) -> Result<BuildS
         }
     }
 
-    // Collect stderr (for non-JSON output like "Finished" line)
     let status = child.wait().context("cargo process failed")?;
 
-    // Print summary
     if !compiled.is_empty() {
         crate::output::verbose(&format!(
             "compiled {} crate(s), {} fresh",
@@ -151,3 +161,5 @@ pub fn run_cargo_json(args: &[&str], env_vars: &[(&str, &str)]) -> Result<BuildS
         success: status.success(),
     })
 }
+
+use owo_colors::OwoColorize;

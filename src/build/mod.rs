@@ -245,24 +245,60 @@ pub fn build(
         crate::output::step("build", &format!("cross-compiling for {t}"));
     }
 
-    let mut cmd = cargo_cmd(config);
-    cmd.arg("build");
-    apply_jobs(&mut cmd, config);
-    if release {
-        cmd.arg("--release");
-    }
-    if let Some(pkg) = package {
-        cmd.args(["--package", pkg]);
-    }
-    if let Some(t) = target {
-        cmd.args(["--target", t]);
-    }
+    let start = std::time::Instant::now();
 
-    let status = cmd.status().context(
-        "failed to run cargo build\n\
-         hint: is cargo installed? run `rx doctor` to check",
-    )?;
-    if !status.success() {
+    // Use JSON output parser in verbose mode for richer feedback
+    let success = if crate::output::is_verbose() {
+        let mut args_vec = vec!["build"];
+        let jobs_str;
+        if config.build.jobs > 0 {
+            jobs_str = config.build.jobs.to_string();
+            args_vec.push("--jobs");
+            args_vec.push(&jobs_str);
+        }
+        if release {
+            args_vec.push("--release");
+        }
+        if let Some(pkg) = package {
+            args_vec.push("--package");
+            args_vec.push(pkg);
+        }
+        if let Some(t) = target {
+            args_vec.push("--target");
+            args_vec.push(t);
+        }
+
+        let env_vars: Vec<(&str, &str)> = if let Some(ref f) = flags {
+            vec![("RUSTFLAGS", f.as_str())]
+        } else {
+            vec![]
+        };
+
+        let summary = crate::cargo_output::run_cargo_json(&args_vec, &env_vars)?;
+        summary.success
+    } else {
+        let mut cmd = cargo_cmd(config);
+        cmd.arg("build");
+        apply_jobs(&mut cmd, config);
+        if release {
+            cmd.arg("--release");
+        }
+        if let Some(pkg) = package {
+            cmd.args(["--package", pkg]);
+        }
+        if let Some(t) = target {
+            cmd.args(["--target", t]);
+        }
+
+        let status = cmd.status().context(
+            "failed to run cargo build\n\
+             hint: is cargo installed? run `rx doctor` to check",
+        )?;
+        status.success()
+    };
+
+    if !success {
+        crate::stats::record("build", start, false);
         anyhow::bail!("build failed");
     }
 
@@ -280,6 +316,7 @@ pub fn build(
         }
     }
 
+    crate::stats::record("build", start, true);
     timer.finish();
     Ok(())
 }

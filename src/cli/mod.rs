@@ -25,9 +25,9 @@ pub struct Cli {
 pub enum Command {
     /// Initialize rx.toml in the current project
     Init {
-        /// Also generate .github/workflows/ci.yml
-        #[arg(long)]
-        ci: bool,
+        /// Generate CI config (github, gitlab, circle — default: github)
+        #[arg(long, default_missing_value = "github", num_args = 0..=1)]
+        ci: Option<String>,
         /// Auto-detect project settings from existing Cargo.toml and tools
         #[arg(long)]
         migrate: bool,
@@ -110,6 +110,15 @@ pub enum Command {
         /// Package to benchmark (in a workspace)
         #[arg(long, short)]
         package: Option<String>,
+        /// Save results as a named baseline
+        #[arg(long)]
+        save: Option<String>,
+        /// Compare results against a saved baseline
+        #[arg(long)]
+        compare: Option<String>,
+        /// List saved baselines
+        #[arg(long)]
+        list: bool,
     },
 
     /// Expand macros (requires cargo-expand)
@@ -278,6 +287,32 @@ pub enum Command {
         /// Shell to generate completions for
         shell: Shell,
     },
+
+    /// Analyze project health, build times, and dependency status
+    Insights,
+
+    /// Explain a Rust error code with practical fixes
+    Explain {
+        /// Error code (e.g. E0502 or 0502)
+        code: String,
+    },
+
+    /// Generate a man page for rx
+    Manpage,
+
+    /// Generate a Software Bill of Materials (SBOM)
+    Sbom {
+        /// Output format: spdx or cyclonedx
+        #[arg(long, default_value = "spdx")]
+        format: String,
+        /// Output file path (default: stdout)
+        #[arg(long, short)]
+        output: Option<String>,
+    },
+
+    /// Run tests with advanced strategies (snapshot, fuzz, mutate)
+    #[command(name = "test-advanced", subcommand)]
+    TestAdvanced(TestAdvancedCommand),
 }
 
 #[derive(Subcommand)]
@@ -305,6 +340,37 @@ pub enum PkgCommand {
     },
     /// List dependencies and their versions
     List,
+    /// Show why a dependency is in your tree (reverse dependency trace)
+    Why {
+        /// Crate name to trace
+        name: String,
+    },
+    /// Find and show duplicate dependency versions
+    Dedupe,
+}
+
+#[derive(Subcommand)]
+pub enum TestAdvancedCommand {
+    /// Update snapshot tests (requires cargo-insta)
+    Snapshot {
+        /// Review snapshots interactively
+        #[arg(long)]
+        review: bool,
+    },
+    /// Run fuzz tests (requires cargo-fuzz)
+    Fuzz {
+        /// Fuzz target name
+        target: String,
+        /// Duration to run (e.g. 60s, 5m)
+        #[arg(long, default_value = "60s")]
+        time: String,
+    },
+    /// Run mutation tests (requires cargo-mutants)
+    Mutate {
+        /// Package to test
+        #[arg(long, short)]
+        package: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -474,8 +540,8 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             }
             crate::config::init_config(&path)?;
             crate::output::success("created rx.toml");
-            if *ci {
-                crate::config::generate_ci_workflow(&path)?;
+            if let Some(provider) = ci {
+                crate::ci_gen::generate_ci(provider)?;
             }
             return Ok(());
         }
@@ -484,6 +550,15 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             dry_run,
             no_push,
         } => return crate::release::release(version, *dry_run, *no_push),
+        Command::Insights => return crate::insights::insights(),
+        Command::Explain { code } => return crate::hints::explain(code),
+        Command::Manpage => return crate::completions::generate_manpage(),
+        Command::Sbom { format, output } => {
+            return crate::sbom::generate_sbom(format, output.as_deref());
+        }
+        Command::TestAdvanced(cmd) => {
+            return crate::test_advanced::dispatch(cmd);
+        }
         _ => {}
     }
 
@@ -529,7 +604,22 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Check { package } => crate::check::check(package.as_deref(), &config),
         Command::Fix => crate::fix::fix(&config),
         Command::Ci => crate::ci::ci(&config),
-        Command::Bench { filter, package } => {
+        Command::Bench {
+            filter,
+            package,
+            save,
+            compare,
+            list,
+        } => {
+            if list {
+                return crate::bench::bench_list();
+            }
+            if let Some(baseline) = compare {
+                return crate::bench::bench_compare(&baseline);
+            }
+            if let Some(name) = save {
+                return crate::bench::bench_save(&name);
+            }
             crate::bench::bench(filter.as_deref(), package.as_deref())
         }
         Command::Expand { item } => crate::expand::expand(item.as_deref()),
@@ -567,6 +657,11 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         | Command::Stats(_)
         | Command::Plugin(_)
         | Command::Init { .. }
-        | Command::Release { .. } => unreachable!(),
+        | Command::Release { .. }
+        | Command::Insights
+        | Command::Explain { .. }
+        | Command::Manpage
+        | Command::Sbom { .. }
+        | Command::TestAdvanced(_) => unreachable!(),
     }
 }

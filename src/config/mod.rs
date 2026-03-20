@@ -375,7 +375,8 @@ pub fn apply_profile(config: &mut RxConfig, profile_name: &str) -> Result<()> {
     }
 }
 
-/// Generate a GitHub Actions CI workflow file.
+/// Generate a GitHub Actions CI workflow file (legacy, use ci_gen instead).
+#[allow(dead_code)]
 pub fn generate_ci_workflow(rx_toml_path: &Path) -> Result<()> {
     let project_dir = rx_toml_path.parent().unwrap_or(Path::new("."));
     let workflow_dir = project_dir.join(".github").join("workflows");

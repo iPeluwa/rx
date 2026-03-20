@@ -122,7 +122,7 @@ fn parse_init() {
     let cli = parse(&["init"]);
     match cli.command {
         rx::cli::Command::Init { ci, migrate } => {
-            assert!(!ci);
+            assert!(ci.is_none());
             assert!(!migrate);
         }
         _ => panic!("expected Init"),
@@ -195,7 +195,9 @@ fn parse_upgrade() {
 fn parse_bench() {
     let cli = parse(&["bench", "my_bench", "--package", "core"]);
     match cli.command {
-        rx::cli::Command::Bench { filter, package } => {
+        rx::cli::Command::Bench {
+            filter, package, ..
+        } => {
             assert_eq!(filter.unwrap(), "my_bench");
             assert_eq!(package.unwrap(), "core");
         }
@@ -410,7 +412,16 @@ fn parse_release() {
 fn parse_init_with_ci() {
     let cli = parse(&["init", "--ci"]);
     match cli.command {
-        rx::cli::Command::Init { ci, .. } => assert!(ci),
+        rx::cli::Command::Init { ci, .. } => assert_eq!(ci.unwrap(), "github"),
+        _ => panic!("expected Init"),
+    }
+}
+
+#[test]
+fn parse_init_with_ci_gitlab() {
+    let cli = parse(&["init", "--ci", "gitlab"]);
+    match cli.command {
+        rx::cli::Command::Init { ci, .. } => assert_eq!(ci.unwrap(), "gitlab"),
         _ => panic!("expected Init"),
     }
 }
@@ -552,5 +563,131 @@ fn parse_init_migrate() {
     match cli.command {
         rx::cli::Command::Init { migrate, .. } => assert!(migrate),
         _ => panic!("expected Init"),
+    }
+}
+
+#[test]
+fn parse_insights() {
+    let cli = parse(&["insights"]);
+    assert!(matches!(cli.command, rx::cli::Command::Insights));
+}
+
+#[test]
+fn parse_explain() {
+    let cli = parse(&["explain", "E0502"]);
+    match cli.command {
+        rx::cli::Command::Explain { code } => assert_eq!(code, "E0502"),
+        _ => panic!("expected Explain"),
+    }
+}
+
+#[test]
+fn parse_manpage() {
+    let cli = parse(&["manpage"]);
+    assert!(matches!(cli.command, rx::cli::Command::Manpage));
+}
+
+#[test]
+fn parse_sbom_spdx() {
+    let cli = parse(&["sbom"]);
+    match cli.command {
+        rx::cli::Command::Sbom { format, output } => {
+            assert_eq!(format, "spdx");
+            assert!(output.is_none());
+        }
+        _ => panic!("expected Sbom"),
+    }
+}
+
+#[test]
+fn parse_sbom_cyclonedx() {
+    let cli = parse(&["sbom", "--format", "cyclonedx", "--output", "bom.json"]);
+    match cli.command {
+        rx::cli::Command::Sbom { format, output } => {
+            assert_eq!(format, "cyclonedx");
+            assert_eq!(output.unwrap(), "bom.json");
+        }
+        _ => panic!("expected Sbom"),
+    }
+}
+
+#[test]
+fn parse_pkg_why() {
+    let cli = parse(&["pkg", "why", "serde"]);
+    match cli.command {
+        rx::cli::Command::Pkg(rx::cli::PkgCommand::Why { name }) => {
+            assert_eq!(name, "serde");
+        }
+        _ => panic!("expected Pkg Why"),
+    }
+}
+
+#[test]
+fn parse_pkg_dedupe() {
+    let cli = parse(&["pkg", "dedupe"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Pkg(rx::cli::PkgCommand::Dedupe)
+    ));
+}
+
+#[test]
+fn parse_bench_save() {
+    let cli = parse(&["bench", "--save", "baseline1"]);
+    match cli.command {
+        rx::cli::Command::Bench { save, .. } => assert_eq!(save.unwrap(), "baseline1"),
+        _ => panic!("expected Bench"),
+    }
+}
+
+#[test]
+fn parse_bench_compare() {
+    let cli = parse(&["bench", "--compare", "baseline1"]);
+    match cli.command {
+        rx::cli::Command::Bench { compare, .. } => assert_eq!(compare.unwrap(), "baseline1"),
+        _ => panic!("expected Bench"),
+    }
+}
+
+#[test]
+fn parse_bench_list() {
+    let cli = parse(&["bench", "--list"]);
+    match cli.command {
+        rx::cli::Command::Bench { list, .. } => assert!(list),
+        _ => panic!("expected Bench"),
+    }
+}
+
+#[test]
+fn parse_test_advanced_snapshot() {
+    let cli = parse(&["test-advanced", "snapshot"]);
+    match cli.command {
+        rx::cli::Command::TestAdvanced(rx::cli::TestAdvancedCommand::Snapshot { review }) => {
+            assert!(!review);
+        }
+        _ => panic!("expected TestAdvanced Snapshot"),
+    }
+}
+
+#[test]
+fn parse_test_advanced_fuzz() {
+    let cli = parse(&["test-advanced", "fuzz", "my_target"]);
+    match cli.command {
+        rx::cli::Command::TestAdvanced(rx::cli::TestAdvancedCommand::Fuzz { target, time }) => {
+            assert_eq!(target, "my_target");
+            assert_eq!(time, "60s");
+        }
+        _ => panic!("expected TestAdvanced Fuzz"),
+    }
+}
+
+#[test]
+fn parse_test_advanced_mutate() {
+    let cli = parse(&["test-advanced", "mutate"]);
+    match cli.command {
+        rx::cli::Command::TestAdvanced(rx::cli::TestAdvancedCommand::Mutate { package }) => {
+            assert!(package.is_none());
+        }
+        _ => panic!("expected TestAdvanced Mutate"),
     }
 }

@@ -6,6 +6,7 @@ use crate::output::Timer;
 
 pub fn lint(fix: bool, config: &RxConfig) -> Result<()> {
     let timer = Timer::start("lint");
+    let start = std::time::Instant::now();
     let mut cmd = Command::new("cargo");
     cmd.arg("clippy");
 
@@ -42,11 +43,13 @@ pub fn lint(fix: bool, config: &RxConfig) -> Result<()> {
          hint: install clippy with `rustup component add clippy`",
     )?;
     if !status.success() {
+        crate::stats::record("lint", start, false);
         if fix {
             anyhow::bail!("lint fix failed — some issues may require manual attention");
         }
         anyhow::bail!("lint failed — run `rx lint --fix` to auto-fix what's possible");
     }
+    crate::stats::record("lint", start, true);
     timer.finish();
     Ok(())
 }

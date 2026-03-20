@@ -43,7 +43,6 @@ fn save_stats(store: &StatsStore) -> Result<()> {
 }
 
 /// Record a build timing. Called by other modules to track performance.
-#[allow(dead_code)]
 pub fn record(command: &str, start: Instant, success: bool) {
     let duration = start.elapsed().as_secs_f64();
     if duration < 0.5 {
