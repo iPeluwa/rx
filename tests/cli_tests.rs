@@ -437,9 +437,7 @@ fn parse_profile_flag() {
 fn parse_new_with_template() {
     let cli = parse(&["new", "myapp", "--template", "axum"]);
     match cli.command {
-        rx::cli::Command::New {
-            name, template, ..
-        } => {
+        rx::cli::Command::New { name, template, .. } => {
             assert_eq!(name, "myapp");
             assert_eq!(template.unwrap(), "axum");
         }
@@ -483,9 +481,7 @@ fn parse_doc_watch() {
 fn parse_test_affected() {
     let cli = parse(&["test", "--affected", "--base", "main"]);
     match cli.command {
-        rx::cli::Command::Test {
-            affected, base, ..
-        } => {
+        rx::cli::Command::Test { affected, base, .. } => {
             assert!(affected);
             assert_eq!(base, "main");
         }
