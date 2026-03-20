@@ -180,7 +180,9 @@ pub fn doctor() -> Result<()> {
         },
     ];
 
-    let has_fast_linker = checks.iter().any(|c| (c.name == "mold" || c.name == "lld") && c.found);
+    let has_fast_linker = checks
+        .iter()
+        .any(|c| (c.name == "mold" || c.name == "lld") && c.found);
     let mut suggestions: Vec<String> = Vec::new();
 
     for check in &checks {
@@ -195,18 +197,12 @@ pub fn doctor() -> Result<()> {
         if check.found {
             println!("  {icon}  {:<12} {}", check.name, check.version.dimmed());
         } else {
-            println!(
-                "  {icon}  {:<12} {}",
-                check.name,
-                check.hint.dimmed()
-            );
+            println!("  {icon}  {:<12} {}", check.name, check.hint.dimmed());
         }
     }
 
     if !has_fast_linker {
-        suggestions.push(
-            "No fast linker found — install mold for 3-5x faster linking".to_string(),
-        );
+        suggestions.push("No fast linker found — install mold for 3-5x faster linking".to_string());
     }
 
     // ── Project Analysis ──
@@ -216,11 +212,7 @@ pub fn doctor() -> Result<()> {
 
         // Workspace detection
         if let Some(member_count) = count_workspace_members(cargo_toml) {
-            println!(
-                "  {}  Workspace with {} members",
-                "✓".green(),
-                member_count
-            );
+            println!("  {}  Workspace with {} members", "✓".green(), member_count);
         } else {
             println!("  {}  Single crate", "✓".green());
         }
@@ -283,21 +275,17 @@ pub fn doctor() -> Result<()> {
                 "  {}  No rx.toml — run `rx init` to configure",
                 "⚠".yellow()
             );
-            suggestions.push("No rx.toml found — run `rx init` to configure your project".to_string());
+            suggestions
+                .push("No rx.toml found — run `rx init` to configure your project".to_string());
         }
 
         // Quick security check (non-blocking)
         let (has_audit, _) = check_cargo_plugin("audit");
         if has_audit {
-            let audit_out = Command::new("cargo")
-                .args(["audit", "--quiet"])
-                .output();
+            let audit_out = Command::new("cargo").args(["audit", "--quiet"]).output();
             if let Ok(output) = audit_out {
                 if output.status.success() {
-                    println!(
-                        "  {}  No known vulnerabilities",
-                        "✓".green()
-                    );
+                    println!("  {}  No known vulnerabilities", "✓".green());
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     // Skip CVSS parse errors
@@ -321,10 +309,7 @@ pub fn doctor() -> Result<()> {
                                 "{vuln_count} security advisory(ies) found — run `rx audit` for details"
                             ));
                         } else {
-                            println!(
-                                "  {}  Security check completed with warnings",
-                                "⚠".yellow()
-                            );
+                            println!("  {}  Security check completed with warnings", "⚠".yellow());
                         }
                     }
                 }
