@@ -4,6 +4,32 @@ All notable changes to rx will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] - 2025-03-20
+
+### Added
+- Windows binary (x86_64-pc-windows-msvc) in release builds
+- SHA256 checksum files uploaded with every release asset
+- `rx completions <shell> --install` writes completions to the correct system directory
+- `rx manpage --install` writes man page to `~/.local/share/man/man1/rx.1`
+- Event-driven pipeline scheduler with condvar-based dependency waiting
+- Self-update with SHA256 checksum verification
+- Flaky test detection with automatic flip-flop tracking
+- Telemetry export (JSON/CSV/markdown), report, and reset commands
+- Workspace-level remote cache push/pull (`rx ws cache-push/cache-pull`)
+- Homebrew formula with SHA256 hashes
+- GitHub Pages documentation site
+- GitHub issue templates (bug report, feature request)
+- SECURITY.md with vulnerability reporting policy
+- Comparison page in docs (rx vs cargo-make, just, cargo-xtask, sccache)
+- Social preview image and README badges (docs, MSRV)
+- Windows support in install.sh
+
+### Fixed
+- `rx audit` handles cargo-audit CVSS v4.0 parse error gracefully
+- clippy `field-reassign-with-default` lint
+- mdBook deploy workflow URL
+- Integration test fixes for profile and script config
+
 ## [0.1.0] - 2025-03-20
 
 ### Added
