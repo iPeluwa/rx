@@ -18,6 +18,37 @@ pub struct RxConfig {
     pub watch: WatchConfig,
     pub scripts: HashMap<String, String>,
     pub env: HashMap<String, String>,
+    #[serde(rename = "profile")]
+    pub profiles: HashMap<String, ProfileOverride>,
+}
+
+/// Profile-specific overrides (e.g. [profile.ci]).
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[serde(default)]
+pub struct ProfileOverride {
+    pub build: Option<ProfileBuildOverride>,
+    pub lint: Option<ProfileLintOverride>,
+    pub test: Option<ProfileTestOverride>,
+    pub env: HashMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[serde(default)]
+pub struct ProfileBuildOverride {
+    pub cache: Option<bool>,
+    pub jobs: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[serde(default)]
+pub struct ProfileLintOverride {
+    pub severity: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[serde(default)]
+pub struct ProfileTestOverride {
+    pub runner: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -210,10 +241,17 @@ pub fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
             env.extend(project.env);
             env
         },
+        profiles: {
+            let mut profiles = global.profiles;
+            profiles.extend(project.profiles);
+            profiles
+        },
     }
 }
 
-const KNOWN_TOP_KEYS: &[&str] = &["build", "test", "lint", "fmt", "watch", "scripts", "env"];
+const KNOWN_TOP_KEYS: &[&str] = &[
+    "build", "test", "lint", "fmt", "watch", "scripts", "env", "profile",
+];
 
 /// Warn about unknown top-level keys in a config file.
 fn warn_unknown_keys(path: &Path) {
@@ -296,5 +334,107 @@ pub fn init_config(path: &Path) -> Result<()> {
 pub fn show(config: &RxConfig) -> Result<()> {
     let contents = toml::to_string_pretty(config)?;
     println!("{contents}");
+    Ok(())
+}
+
+/// Apply a named profile's overrides to the config.
+pub fn apply_profile(config: &mut RxConfig, profile_name: &str) -> Result<()> {
+    let profile = config.profiles.get(profile_name).cloned();
+    match profile {
+        Some(p) => {
+            crate::output::verbose(&format!("applying profile: {profile_name}"));
+            if let Some(build) = p.build {
+                if let Some(cache) = build.cache {
+                    config.build.cache = cache;
+                }
+                if let Some(jobs) = build.jobs {
+                    config.build.jobs = jobs;
+                }
+            }
+            if let Some(lint) = p.lint {
+                if let Some(severity) = lint.severity {
+                    config.lint.severity = severity;
+                }
+            }
+            if let Some(test) = p.test {
+                if let Some(runner) = test.runner {
+                    config.test.runner = runner;
+                }
+            }
+            for (key, value) in p.env {
+                config.env.insert(key, value);
+            }
+            Ok(())
+        }
+        None => {
+            anyhow::bail!(
+                "unknown profile `{profile_name}`\n\
+                 hint: define it in rx.toml under [profile.{profile_name}]"
+            );
+        }
+    }
+}
+
+/// Generate a GitHub Actions CI workflow file.
+pub fn generate_ci_workflow(rx_toml_path: &Path) -> Result<()> {
+    let project_dir = rx_toml_path.parent().unwrap_or(Path::new("."));
+    let workflow_dir = project_dir.join(".github").join("workflows");
+    fs::create_dir_all(&workflow_dir)?;
+
+    let ci_path = workflow_dir.join("ci.yml");
+    if ci_path.exists() {
+        crate::output::warn(".github/workflows/ci.yml already exists, skipping");
+        return Ok(());
+    }
+
+    let ci_content = r#"name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --all-targets
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy -- -D warnings
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
+"#;
+
+    fs::write(&ci_path, ci_content)?;
+    crate::output::success("created .github/workflows/ci.yml");
     Ok(())
 }

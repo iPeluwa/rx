@@ -97,7 +97,10 @@ fn parse_cache_gc() {
 fn parse_clean_with_gc() {
     let cli = parse(&["clean", "--gc"]);
     match cli.command {
-        rx::cli::Command::Clean { gc } => assert!(gc),
+        rx::cli::Command::Clean { gc, all } => {
+            assert!(gc);
+            assert!(!all);
+        }
         _ => panic!("expected Clean"),
     }
 }
@@ -106,7 +109,7 @@ fn parse_clean_with_gc() {
 fn parse_new_lib() {
     let cli = parse(&["new", "mylib", "--lib"]);
     match cli.command {
-        rx::cli::Command::New { name, lib } => {
+        rx::cli::Command::New { name, lib, .. } => {
             assert_eq!(name, "mylib");
             assert!(lib);
         }
@@ -117,7 +120,13 @@ fn parse_new_lib() {
 #[test]
 fn parse_init() {
     let cli = parse(&["init"]);
-    assert!(matches!(cli.command, rx::cli::Command::Init));
+    match cli.command {
+        rx::cli::Command::Init { ci, migrate } => {
+            assert!(!ci);
+            assert!(!migrate);
+        }
+        _ => panic!("expected Init"),
+    }
 }
 
 #[test]
@@ -313,4 +322,239 @@ fn parse_audit() {
 fn parse_self_update() {
     let cli = parse(&["self-update"]);
     assert!(matches!(cli.command, rx::cli::Command::SelfUpdate));
+}
+
+#[test]
+fn parse_script() {
+    let cli = parse(&["script", "ci"]);
+    match cli.command {
+        rx::cli::Command::Script { name } => assert_eq!(name.unwrap(), "ci"),
+        _ => panic!("expected Script"),
+    }
+}
+
+#[test]
+fn parse_script_list() {
+    let cli = parse(&["script"]);
+    match cli.command {
+        rx::cli::Command::Script { name } => assert!(name.is_none()),
+        _ => panic!("expected Script"),
+    }
+}
+
+#[test]
+fn parse_coverage() {
+    let cli = parse(&["coverage", "--open"]);
+    match cli.command {
+        rx::cli::Command::Coverage { open, lcov } => {
+            assert!(open);
+            assert!(!lcov);
+        }
+        _ => panic!("expected Coverage"),
+    }
+}
+
+#[test]
+fn parse_deps() {
+    let cli = parse(&["deps"]);
+    assert!(matches!(cli.command, rx::cli::Command::Deps));
+}
+
+#[test]
+fn parse_bloat() {
+    let cli = parse(&["bloat", "--release", "--crates"]);
+    match cli.command {
+        rx::cli::Command::Bloat { release, crates } => {
+            assert!(release);
+            assert!(crates);
+        }
+        _ => panic!("expected Bloat"),
+    }
+}
+
+#[test]
+fn parse_doc_open() {
+    let cli = parse(&["doc", "--open", "--no-deps"]);
+    match cli.command {
+        rx::cli::Command::Doc {
+            open,
+            no_deps,
+            watch,
+        } => {
+            assert!(open);
+            assert!(no_deps);
+            assert!(!watch);
+        }
+        _ => panic!("expected Doc"),
+    }
+}
+
+#[test]
+fn parse_release() {
+    let cli = parse(&["release", "1.2.3", "--dry-run"]);
+    match cli.command {
+        rx::cli::Command::Release {
+            version,
+            dry_run,
+            no_push,
+        } => {
+            assert_eq!(version, "1.2.3");
+            assert!(dry_run);
+            assert!(!no_push);
+        }
+        _ => panic!("expected Release"),
+    }
+}
+
+#[test]
+fn parse_init_with_ci() {
+    let cli = parse(&["init", "--ci"]);
+    match cli.command {
+        rx::cli::Command::Init { ci, .. } => assert!(ci),
+        _ => panic!("expected Init"),
+    }
+}
+
+#[test]
+fn parse_clean_all() {
+    let cli = parse(&["clean", "--all"]);
+    match cli.command {
+        rx::cli::Command::Clean { gc, all } => {
+            assert!(!gc);
+            assert!(all);
+        }
+        _ => panic!("expected Clean"),
+    }
+}
+
+#[test]
+fn parse_profile_flag() {
+    let cli = parse(&["--profile", "ci", "build"]);
+    assert_eq!(cli.profile.unwrap(), "ci");
+}
+
+#[test]
+fn parse_new_with_template() {
+    let cli = parse(&["new", "myapp", "--template", "axum"]);
+    match cli.command {
+        rx::cli::Command::New {
+            name, template, ..
+        } => {
+            assert_eq!(name, "myapp");
+            assert_eq!(template.unwrap(), "axum");
+        }
+        _ => panic!("expected New"),
+    }
+}
+
+#[test]
+fn parse_release_patch() {
+    let cli = parse(&["release", "patch"]);
+    match cli.command {
+        rx::cli::Command::Release { version, .. } => {
+            assert_eq!(version, "patch");
+        }
+        _ => panic!("expected Release"),
+    }
+}
+
+#[test]
+fn parse_coverage_lcov() {
+    let cli = parse(&["coverage", "--lcov"]);
+    match cli.command {
+        rx::cli::Command::Coverage { open, lcov } => {
+            assert!(!open);
+            assert!(lcov);
+        }
+        _ => panic!("expected Coverage"),
+    }
+}
+
+#[test]
+fn parse_doc_watch() {
+    let cli = parse(&["doc", "--watch"]);
+    match cli.command {
+        rx::cli::Command::Doc { watch, .. } => assert!(watch),
+        _ => panic!("expected Doc"),
+    }
+}
+
+#[test]
+fn parse_test_affected() {
+    let cli = parse(&["test", "--affected", "--base", "main"]);
+    match cli.command {
+        rx::cli::Command::Test {
+            affected, base, ..
+        } => {
+            assert!(affected);
+            assert_eq!(base, "main");
+        }
+        _ => panic!("expected Test"),
+    }
+}
+
+#[test]
+fn parse_env_show() {
+    let cli = parse(&["env", "show"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Env(rx::cli::EnvCommand::Show)
+    ));
+}
+
+#[test]
+fn parse_env_shell() {
+    let cli = parse(&["env", "shell"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Env(rx::cli::EnvCommand::Shell)
+    ));
+}
+
+#[test]
+fn parse_plugin_list() {
+    let cli = parse(&["plugin", "list"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Plugin(rx::cli::PluginCommand::List)
+    ));
+}
+
+#[test]
+fn parse_plugin_run() {
+    let cli = parse(&["plugin", "run", "myplug", "--", "--flag"]);
+    match cli.command {
+        rx::cli::Command::Plugin(rx::cli::PluginCommand::Run { name, args }) => {
+            assert_eq!(name, "myplug");
+            assert_eq!(args, vec!["--flag"]);
+        }
+        _ => panic!("expected Plugin Run"),
+    }
+}
+
+#[test]
+fn parse_stats_show() {
+    let cli = parse(&["stats", "show"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Stats(rx::cli::StatsCommand::Show)
+    ));
+}
+
+#[test]
+fn parse_stats_clear() {
+    let cli = parse(&["stats", "clear"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Stats(rx::cli::StatsCommand::Clear)
+    ));
+}
+
+#[test]
+fn parse_init_migrate() {
+    let cli = parse(&["init", "--migrate"]);
+    match cli.command {
+        rx::cli::Command::Init { migrate, .. } => assert!(migrate),
+        _ => panic!("expected Init"),
+    }
 }

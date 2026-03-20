@@ -519,15 +519,50 @@ pub fn dispatch(cmd: CacheCommand) -> Result<()> {
     }
 }
 
-pub fn clean(gc_cache: bool) -> Result<()> {
-    let status = std::process::Command::new("cargo")
-        .arg("clean")
-        .status()
-        .context("failed to run cargo clean")?;
-    if !status.success() {
-        anyhow::bail!("cargo clean failed");
+pub fn clean(gc_cache: bool, all_workspace: bool) -> Result<()> {
+    if all_workspace {
+        // Clean all workspace member target directories
+        if let Ok(graph) = crate::workspace::resolve_workspace() {
+            crate::output::info(&format!(
+                "cleaning {} workspace members...",
+                graph.members.len()
+            ));
+            for member in &graph.members {
+                let status = std::process::Command::new("cargo")
+                    .arg("clean")
+                    .current_dir(&member.path)
+                    .status();
+                match status {
+                    Ok(s) if s.success() => {
+                        crate::output::step(&member.name, "cleaned");
+                    }
+                    _ => {
+                        crate::output::warn(&format!("failed to clean {}", member.name));
+                    }
+                }
+            }
+            crate::output::success("cleaned all workspace target/ directories");
+        } else {
+            // Not a workspace, just clean normally
+            let status = std::process::Command::new("cargo")
+                .arg("clean")
+                .status()
+                .context("failed to run cargo clean")?;
+            if !status.success() {
+                anyhow::bail!("cargo clean failed");
+            }
+            crate::output::success("cleaned local target/ directory");
+        }
+    } else {
+        let status = std::process::Command::new("cargo")
+            .arg("clean")
+            .status()
+            .context("failed to run cargo clean")?;
+        if !status.success() {
+            anyhow::bail!("cargo clean failed");
+        }
+        crate::output::success("cleaned local target/ directory");
     }
-    crate::output::success("cleaned local target/ directory");
 
     if gc_cache {
         crate::output::info("running global cache GC...");

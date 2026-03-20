@@ -21,6 +21,7 @@ chrono = { version = "0.4", features = ["serde"] }
 owo-colors = "4"
 indicatif = "0.17"
 ctrlc = "3"
+serde_json = "1"
 
 [dev-dependencies]
 tempfile = "3"

@@ -670,6 +670,7 @@ dependencies = [
  "indicatif",
  "owo-colors",
  "serde",
+ "serde_json",
  "sha2",
  "tempfile",
  "toml",

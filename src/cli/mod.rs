@@ -13,6 +13,10 @@ pub struct Cli {
     #[arg(long, short, global = true)]
     pub verbose: bool,
 
+    /// Config profile to use (e.g. --profile ci)
+    #[arg(long, global = true)]
+    pub profile: Option<String>,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -20,7 +24,14 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Initialize rx.toml in the current project
-    Init,
+    Init {
+        /// Also generate .github/workflows/ci.yml
+        #[arg(long)]
+        ci: bool,
+        /// Auto-detect project settings from existing Cargo.toml and tools
+        #[arg(long)]
+        migrate: bool,
+    },
 
     /// Show the resolved rx configuration
     Config,
@@ -32,6 +43,9 @@ pub enum Command {
         /// Use library template instead of binary
         #[arg(long)]
         lib: bool,
+        /// Project template: axum, cli, wasm, lib
+        #[arg(long, short)]
+        template: Option<String>,
     },
 
     /// Build the project (with fast linker + caching)
@@ -67,6 +81,12 @@ pub enum Command {
         /// Run tests in release mode
         #[arg(long, short)]
         release: bool,
+        /// Only test packages affected by changes since base ref
+        #[arg(long)]
+        affected: bool,
+        /// Base ref for --affected (default: HEAD~1)
+        #[arg(long, default_value = "HEAD~1")]
+        base: String,
     },
 
     /// Format code (rustfmt)
@@ -136,6 +156,9 @@ pub enum Command {
         /// Also garbage-collect the global cache
         #[arg(long)]
         gc: bool,
+        /// Clean all workspace member target directories
+        #[arg(long)]
+        all: bool,
     },
 
     /// Check your development environment
@@ -183,6 +206,72 @@ pub enum Command {
     /// Update rx to the latest version
     #[command(name = "self-update")]
     SelfUpdate,
+
+    /// Run a script defined in rx.toml
+    Script {
+        /// Script name (omit to list all scripts)
+        name: Option<String>,
+    },
+
+    /// Generate code coverage report
+    Coverage {
+        /// Open the report in a browser
+        #[arg(long)]
+        open: bool,
+        /// Output LCOV format (for CI integrations)
+        #[arg(long)]
+        lcov: bool,
+    },
+
+    /// Dependency health dashboard (tree + outdated + audit)
+    Deps,
+
+    /// Analyze binary bloat by function or crate
+    Bloat {
+        /// Analyze release binary
+        #[arg(long, short)]
+        release: bool,
+        /// Group by crate instead of function
+        #[arg(long)]
+        crates: bool,
+    },
+
+    /// Build documentation
+    Doc {
+        /// Open docs in browser after building
+        #[arg(long)]
+        open: bool,
+        /// Skip building docs for dependencies
+        #[arg(long)]
+        no_deps: bool,
+        /// Watch for changes and rebuild
+        #[arg(long, short)]
+        watch: bool,
+    },
+
+    /// Bump version, commit, tag, and push a release
+    Release {
+        /// Version or bump keyword: patch, minor, major, or explicit (e.g. 1.2.3)
+        version: String,
+        /// Show what would happen without making changes
+        #[arg(long)]
+        dry_run: bool,
+        /// Create commit and tag but don't push
+        #[arg(long)]
+        no_push: bool,
+    },
+
+    /// Manage environment variables from rx.toml
+    #[command(subcommand)]
+    Env(EnvCommand),
+
+    /// Manage or run plugins (~/.rx/plugins/)
+    #[command(subcommand)]
+    Plugin(PluginCommand),
+
+    /// Show build time statistics and trends
+    #[command(subcommand)]
+    Stats(StatsCommand),
 
     /// Generate shell completions
     Completions {
@@ -280,9 +369,45 @@ pub enum WsCommand {
     },
 }
 
-/// Load config and apply env vars.
-fn load_config() -> Result<crate::config::RxConfig> {
-    let config = crate::config::load()?;
+#[derive(Subcommand)]
+pub enum EnvCommand {
+    /// Show resolved environment variables from rx.toml
+    Show,
+    /// Spawn a shell with rx.toml env vars loaded
+    Shell,
+}
+
+#[derive(Subcommand)]
+pub enum PluginCommand {
+    /// List available plugins
+    List,
+    /// Run a plugin by name
+    Run {
+        /// Plugin name
+        name: String,
+        /// Arguments to pass to the plugin
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum StatsCommand {
+    /// Show build time statistics
+    Show,
+    /// Clear all recorded stats
+    Clear,
+}
+
+/// Load config, apply profile overrides, and set env vars.
+fn load_config(profile: Option<&str>) -> Result<crate::config::RxConfig> {
+    let mut config = crate::config::load()?;
+
+    // Apply profile overrides if specified
+    if let Some(profile_name) = profile {
+        crate::config::apply_profile(&mut config, profile_name)?;
+    }
+
     // SAFETY: rx is single-threaded at this point (before any thread spawning)
     for (key, value) in &config.env {
         unsafe { std::env::set_var(key, value) };
@@ -306,21 +431,64 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Audit => return crate::audit::audit(),
         Command::Tree { duplicates, depth } => return crate::tree::tree(*duplicates, *depth),
         Command::Size { release } => return crate::size::size(*release),
-        Command::New { name, lib } => return crate::workspace::new_project(name, *lib),
-        Command::Init => {
+        Command::Deps => return crate::deps::deps(),
+        Command::Bloat { release, crates } => return crate::bloat::bloat(*release, *crates),
+        Command::Coverage { open, lcov } => return crate::coverage::coverage(*open, *lcov),
+        Command::Doc {
+            open,
+            no_deps,
+            watch,
+        } => {
+            return crate::doc::doc(*open, *no_deps, *watch);
+        }
+        Command::Stats(cmd) => {
+            return match cmd {
+                StatsCommand::Show => crate::stats::show(),
+                StatsCommand::Clear => crate::stats::clear(),
+            };
+        }
+        Command::Plugin(cmd) => {
+            return match cmd {
+                PluginCommand::List => crate::plugin::list_plugins(),
+                PluginCommand::Run { name, args } => crate::plugin::run_plugin(name, args),
+            };
+        }
+        Command::New {
+            name,
+            lib,
+            template,
+        } => {
+            return if let Some(tmpl) = template {
+                crate::templates::new_from_template(name, tmpl)
+            } else {
+                crate::workspace::new_project(name, *lib)
+            };
+        }
+        Command::Init { ci, migrate } => {
+            if *migrate {
+                return crate::migrate::migrate();
+            }
             let path = std::env::current_dir()?.join("rx.toml");
             if path.exists() {
                 anyhow::bail!("rx.toml already exists");
             }
             crate::config::init_config(&path)?;
             crate::output::success("created rx.toml");
+            if *ci {
+                crate::config::generate_ci_workflow(&path)?;
+            }
             return Ok(());
         }
+        Command::Release {
+            version,
+            dry_run,
+            no_push,
+        } => return crate::release::release(version, *dry_run, *no_push),
         _ => {}
     }
 
     // Commands that need config
-    let config = load_config()?;
+    let config = load_config(cli.profile.as_deref())?;
 
     match cli.command {
         Command::Config => crate::config::show(&config),
@@ -334,7 +502,28 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             filter,
             package,
             release,
-        } => crate::test::test(filter.as_deref(), package.as_deref(), release, &config),
+            affected,
+            base,
+        } => {
+            if affected {
+                let packages = crate::affected::affected_packages(&base)?;
+                if packages.is_empty() {
+                    crate::output::success("no affected packages — skipping tests");
+                    return Ok(());
+                }
+                // If it's a single root package, just run tests normally
+                if packages.len() == 1 && packages[0] == "(root)" {
+                    return crate::test::test(filter.as_deref(), None, release, &config);
+                }
+                // Run tests for each affected package
+                for pkg in &packages {
+                    crate::test::test(filter.as_deref(), Some(pkg), release, &config)?;
+                }
+                Ok(())
+            } else {
+                crate::test::test(filter.as_deref(), package.as_deref(), release, &config)
+            }
+        }
         Command::Fmt { check } => crate::fmt::fmt(check, &config),
         Command::Lint { fix } => crate::lint::lint(fix, &config),
         Command::Check { package } => crate::check::check(package.as_deref(), &config),
@@ -352,8 +541,16 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Cache(cmd) => crate::cache::dispatch(cmd),
         Command::Ws(cmd) => crate::workspace::dispatch(cmd),
         Command::Watch { cmd } => crate::watch::watch(cmd.as_deref(), &config),
-        Command::Clean { gc } => crate::cache::clean(gc),
+        Command::Clean { gc, all } => crate::cache::clean(gc, all),
         Command::Upgrade => crate::upgrade::upgrade(),
+        Command::Script { name } => match name {
+            Some(n) => crate::script::run_script(&n, &config),
+            None => crate::script::list_scripts(&config),
+        },
+        Command::Env(cmd) => match cmd {
+            EnvCommand::Show => crate::env::show_env(&config),
+            EnvCommand::Shell => crate::env::shell(&config),
+        },
         // Already handled above
         Command::Doctor
         | Command::SelfUpdate
@@ -363,6 +560,13 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         | Command::Tree { .. }
         | Command::Size { .. }
         | Command::New { .. }
-        | Command::Init => unreachable!(),
+        | Command::Deps
+        | Command::Bloat { .. }
+        | Command::Coverage { .. }
+        | Command::Doc { .. }
+        | Command::Stats(_)
+        | Command::Plugin(_)
+        | Command::Init { .. }
+        | Command::Release { .. } => unreachable!(),
     }
 }
