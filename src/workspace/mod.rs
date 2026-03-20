@@ -340,11 +340,79 @@ fn compute_waves(graph: &WorkspaceGraph) -> Result<Vec<Vec<Member>>> {
         .collect())
 }
 
+/// Check which workspace members actually need to rebuild based on semantic
+/// fingerprinting. A downstream crate only needs to rebuild if its upstream
+/// dependency's public API changed (not just its implementation).
+fn members_needing_rebuild(graph: &WorkspaceGraph) -> HashSet<String> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return graph.members.iter().map(|m| m.name.clone()).collect(),
+    };
+    let sem_cache_dir = home.join(".rx").join("cache").join("semantic");
+    let _ = std::fs::create_dir_all(&sem_cache_dir);
+
+    let mut needs_rebuild: HashSet<String> = HashSet::new();
+    let mut api_changed: HashSet<String> = HashSet::new();
+
+    for member in &graph.members {
+        let fp = match crate::cache::compute_semantic_fingerprint(&member.path) {
+            Ok(fp) => fp,
+            Err(_) => {
+                needs_rebuild.insert(member.name.clone());
+                api_changed.insert(member.name.clone());
+                continue;
+            }
+        };
+
+        let cache_file = sem_cache_dir.join(format!("{}.txt", member.name));
+        let cached = fs::read_to_string(&cache_file).unwrap_or_default();
+
+        if cached.trim() != fp {
+            // API changed — this member and its dependents need rebuild
+            api_changed.insert(member.name.clone());
+            needs_rebuild.insert(member.name.clone());
+            let _ = fs::write(&cache_file, &fp);
+        }
+    }
+
+    // Propagate: if an upstream's API changed, downstream needs rebuild
+    for member in &graph.members {
+        if let Some(deps) = graph.deps.get(&member.name) {
+            for dep in deps {
+                if api_changed.contains(dep) {
+                    needs_rebuild.insert(member.name.clone());
+                }
+            }
+        }
+    }
+
+    needs_rebuild
+}
+
 /// Run a cargo subcommand across workspace members in parallel waves.
 fn run_across_workspace(cargo_cmd: &str, extra_args: &[String]) -> Result<()> {
     let graph = resolve_workspace()?;
     let waves = compute_waves(&graph)?;
     let total = graph.members.len();
+
+    // Use semantic fingerprinting to skip unchanged members for build/check
+    let skip_set = if cargo_cmd == "build" || cargo_cmd == "check" {
+        let needs = members_needing_rebuild(&graph);
+        let skipped = total - needs.len();
+        if skipped > 0 {
+            crate::output::info(&format!(
+                "semantic fingerprint: skipping {skipped} unchanged member(s)"
+            ));
+        }
+        graph
+            .members
+            .iter()
+            .filter(|m| !needs.contains(&m.name))
+            .map(|m| m.name.clone())
+            .collect::<HashSet<_>>()
+    } else {
+        HashSet::new()
+    };
 
     crate::output::info(&format!(
         "workspace: {total} members, {} wave(s)",
@@ -354,17 +422,28 @@ fn run_across_workspace(cargo_cmd: &str, extra_args: &[String]) -> Result<()> {
     let failed = Arc::new(Mutex::new(Vec::<String>::new()));
 
     for (wave_idx, wave) in waves.iter().enumerate() {
+        // Filter out members that don't need rebuild
+        let active: Vec<Member> = wave
+            .iter()
+            .filter(|m| !skip_set.contains(&m.name))
+            .cloned()
+            .collect();
+
+        if active.is_empty() {
+            continue;
+        }
+
         crate::output::step(
             &format!("wave {}/{}", wave_idx + 1, waves.len()),
-            &wave
+            &active
                 .iter()
                 .map(|m| m.name.as_str())
                 .collect::<Vec<_>>()
                 .join(", "),
         );
 
-        if wave.len() == 1 {
-            let member = &wave[0];
+        if active.len() == 1 {
+            let member = &active[0];
             let mut args = vec![cargo_cmd.to_string()];
             args.extend(extra_args.iter().cloned());
             let result = run_in_dir(member, "cargo", &args);
@@ -373,7 +452,7 @@ fn run_across_workspace(cargo_cmd: &str, extra_args: &[String]) -> Result<()> {
                 failed.lock().unwrap().push(result.package);
             }
         } else {
-            let handles: Vec<_> = wave
+            let handles: Vec<_> = active
                 .iter()
                 .map(|member| {
                     let member = member.clone();

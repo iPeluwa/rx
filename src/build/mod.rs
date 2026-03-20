@@ -112,6 +112,19 @@ fn build_rustflags(config: &RxConfig) -> Option<String> {
         flags.push(format!("-Clinker={linker}"));
     }
 
+    // Incremental linking optimizations
+    if config.build.incremental_link {
+        // Split debuginfo: don't embed DWARF in the binary — link is faster
+        #[cfg(target_os = "macos")]
+        flags.push("-Csplit-debuginfo=unpacked".to_string());
+        #[cfg(target_os = "linux")]
+        flags.push("-Csplit-debuginfo=unpacked".to_string());
+
+        // Skip linking unused libraries
+        #[cfg(target_os = "linux")]
+        flags.push("-Clink-arg=-Wl,--as-needed".to_string());
+    }
+
     flags.extend(config.build.rustflags.iter().cloned());
 
     if flags.is_empty() {

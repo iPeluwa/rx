@@ -95,6 +95,7 @@ fn merge_project_overrides_global() {
             rustflags: vec!["-Copt-level=2".into()],
             cache: true,
             jobs: 8,
+            incremental_link: true,
         },
         test: rx::config::TestConfig {
             runner: "nextest".into(),

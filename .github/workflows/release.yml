@@ -20,12 +20,16 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+            pgo: true
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
+            pgo: false
           - target: x86_64-apple-darwin
             os: macos-latest
+            pgo: true
           - target: aarch64-apple-darwin
             os: macos-latest
+            pgo: true
 
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +37,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+          components: llvm-tools-preview
 
       - name: Install cross-compilation tools
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -40,7 +45,69 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Build
+      # --- PGO: Step 1 - Build instrumented binary ---
+      - name: Build instrumented binary
+        if: matrix.pgo == true
+        run: |
+          RUSTFLAGS="-Cprofile-generate=$PWD/pgo-data" \
+            cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      # --- PGO: Step 2 - Run representative workloads ---
+      - name: Generate PGO profile data
+        if: matrix.pgo == true
+        run: |
+          BIN="target/${{ matrix.target }}/release/rx"
+
+          # Exercise all major CLI paths to generate profile data
+          $BIN --help || true
+          $BIN build --help || true
+          $BIN test --help || true
+          $BIN fmt --help || true
+          $BIN lint --help || true
+          $BIN check --help || true
+          $BIN clean --help || true
+          $BIN pkg add --help || true
+          $BIN ws --help || true
+          $BIN cache status || true
+          $BIN config || true
+          $BIN doctor || true
+          $BIN completions bash > /dev/null || true
+          $BIN completions zsh > /dev/null || true
+          $BIN completions fish > /dev/null || true
+
+          # Run it against our own project as a real workload
+          $BIN insights || true
+          $BIN tree --depth 2 || true
+          $BIN deps || true
+
+      # --- PGO: Step 3 - Merge profiles ---
+      - name: Merge PGO profiles
+        if: matrix.pgo == true
+        run: |
+          # Find llvm-profdata from the installed toolchain
+          LLVM_PROFDATA=$(find $(rustc --print sysroot) -name llvm-profdata -type f | head -1)
+          if [ -z "$LLVM_PROFDATA" ]; then
+            echo "Warning: llvm-profdata not found, skipping PGO merge"
+            exit 0
+          fi
+          $LLVM_PROFDATA merge -o pgo-merged.profdata pgo-data/
+
+      # --- PGO: Step 4 - Rebuild with profile data ---
+      - name: Build PGO-optimized binary
+        if: matrix.pgo == true
+        run: |
+          # Clean previous build
+          cargo clean --release --target ${{ matrix.target }}
+          RUSTFLAGS="-Cprofile-use=$PWD/pgo-merged.profdata -Cllvm-args=-pgo-warn-missing-function" \
+            cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      # --- Non-PGO: Standard build for cross-compiled targets ---
+      - name: Build (no PGO)
+        if: matrix.pgo != true
         run: cargo build --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc

@@ -62,6 +62,8 @@ pub struct BuildConfig {
     pub cache: bool,
     /// Default number of parallel jobs (0 = auto)
     pub jobs: u32,
+    /// Enable incremental linking optimizations (split-debuginfo, --as-needed)
+    pub incremental_link: bool,
 }
 
 impl Default for BuildConfig {
@@ -71,6 +73,7 @@ impl Default for BuildConfig {
             rustflags: vec![],
             cache: true,
             jobs: 0,
+            incremental_link: true,
         }
     }
 }
@@ -187,6 +190,7 @@ pub fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
             } else {
                 global.build.jobs
             },
+            incremental_link: project.build.incremental_link && global.build.incremental_link,
         },
         test: TestConfig {
             runner: if project.test.runner != "auto" {

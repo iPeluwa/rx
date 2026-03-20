@@ -313,6 +313,22 @@ pub enum Command {
     /// Run tests with advanced strategies (snapshot, fuzz, mutate)
     #[command(name = "test-advanced", subcommand)]
     TestAdvanced(TestAdvancedCommand),
+
+    /// Manage the rxd background daemon
+    #[command(subcommand)]
+    Daemon(DaemonCommand),
+}
+
+#[derive(Subcommand)]
+pub enum DaemonCommand {
+    /// Start the daemon in the foreground
+    Start,
+    /// Stop a running daemon
+    Stop,
+    /// Show daemon status
+    Status,
+    /// Ping the daemon
+    Ping,
 }
 
 #[derive(Subcommand)]
@@ -559,6 +575,27 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::TestAdvanced(cmd) => {
             return crate::test_advanced::dispatch(cmd);
         }
+        Command::Daemon(cmd) => {
+            return match cmd {
+                DaemonCommand::Start => crate::daemon::start(),
+                DaemonCommand::Stop => crate::daemon::stop(),
+                DaemonCommand::Status => crate::daemon::status(),
+                DaemonCommand::Ping => {
+                    let request = crate::daemon::DaemonRequest {
+                        command: "ping".into(),
+                        args: vec![],
+                        cwd: std::env::current_dir()?.to_string_lossy().to_string(),
+                    };
+                    let response = crate::daemon::send_request(&request)?;
+                    if response.success {
+                        crate::output::success(&response.output);
+                    } else {
+                        anyhow::bail!("{}", response.output);
+                    }
+                    Ok(())
+                }
+            };
+        }
         _ => {}
     }
 
@@ -662,6 +699,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         | Command::Explain { .. }
         | Command::Manpage
         | Command::Sbom { .. }
-        | Command::TestAdvanced(_) => unreachable!(),
+        | Command::TestAdvanced(_)
+        | Command::Daemon(_) => unreachable!(),
     }
 }

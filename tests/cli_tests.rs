@@ -691,3 +691,39 @@ fn parse_test_advanced_mutate() {
         _ => panic!("expected TestAdvanced Mutate"),
     }
 }
+
+#[test]
+fn parse_daemon_start() {
+    let cli = parse(&["daemon", "start"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Daemon(rx::cli::DaemonCommand::Start)
+    ));
+}
+
+#[test]
+fn parse_daemon_stop() {
+    let cli = parse(&["daemon", "stop"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Daemon(rx::cli::DaemonCommand::Stop)
+    ));
+}
+
+#[test]
+fn parse_daemon_status() {
+    let cli = parse(&["daemon", "status"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Daemon(rx::cli::DaemonCommand::Status)
+    ));
+}
+
+#[test]
+fn parse_daemon_ping() {
+    let cli = parse(&["daemon", "ping"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Daemon(rx::cli::DaemonCommand::Ping)
+    ));
+}

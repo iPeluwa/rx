@@ -336,6 +336,43 @@ pub fn compute_build_fingerprint(
     Ok(fingerprint)
 }
 
+/// Compute a semantic fingerprint that only changes when the public API changes.
+/// This is useful for workspace builds: if an upstream crate's public API hasn't
+/// changed, downstream crates don't need to rebuild even if the upstream's
+/// implementation changed.
+pub fn compute_semantic_fingerprint(project_root: &Path) -> Result<String> {
+    let mut buf = Vec::new();
+
+    let cargo_toml = project_root.join("Cargo.toml");
+    if cargo_toml.exists() {
+        buf.extend_from_slice(&fs::read(&cargo_toml)?);
+    }
+    buf.push(0);
+
+    let src_dir = project_root.join("src");
+    if src_dir.exists() {
+        let mut rs_files: Vec<PathBuf> = WalkDir::new(&src_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
+            .map(|e| e.into_path())
+            .collect();
+        rs_files.sort();
+
+        for file in &rs_files {
+            let rel = file.strip_prefix(project_root).unwrap_or(file);
+            buf.extend_from_slice(rel.to_string_lossy().as_bytes());
+            buf.push(0);
+            // Use semantic hash (public API only) instead of full content
+            let hash = crate::semantic_hash::semantic_hash_file(file);
+            buf.extend_from_slice(&hash.to_le_bytes());
+            buf.push(0);
+        }
+    }
+
+    Ok(format!("{:032x}", xxh3_128(&buf)))
+}
+
 /// Directory where cached build outputs for a given fingerprint are stored.
 fn build_cache_dir(fingerprint: &str) -> Result<PathBuf> {
     Ok(cache_dir()?
@@ -359,7 +396,26 @@ pub fn lookup_build(fingerprint: &str) -> Result<Option<PathBuf>> {
     }
 }
 
+/// Copy a single file using the best available strategy:
+/// reflink (CoW on APFS/btrfs) -> hard link -> regular copy.
+fn copy_file_fast(src: &Path, dest: &Path) -> Result<()> {
+    // Try reflink first (copy-on-write, instant on APFS/btrfs)
+    if reflink_copy::reflink(src, dest).is_ok() {
+        return Ok(());
+    }
+    // Fall back to hard link (shares inode, zero copy)
+    if fs::hard_link(src, dest).is_ok() {
+        return Ok(());
+    }
+    // Fall back to regular copy
+    fs::copy(src, dest)
+        .with_context(|| format!("failed to copy {} -> {}", src.display(), dest.display()))?;
+    Ok(())
+}
+
 pub fn store_build(fingerprint: &str, artifacts: &[(String, PathBuf)]) -> Result<PathBuf> {
+    use rayon::prelude::*;
+
     let _lock = FileLock::acquire()?;
 
     // Write artifacts to a temp dir first, then rename for atomicity
@@ -372,14 +428,15 @@ pub fn store_build(fingerprint: &str, artifacts: &[(String, PathBuf)]) -> Result
     }
     fs::create_dir_all(&staging_dir)?;
 
-    let mut total_size: u64 = 0;
-    for (name, source) in artifacts {
-        let dest = staging_dir.join(name);
-        if fs::hard_link(source, &dest).is_err() {
-            fs::copy(source, &dest).with_context(|| format!("failed to cache artifact {name}"))?;
-        }
-        total_size += fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
-    }
+    // Copy artifacts in parallel using reflink -> hardlink -> copy
+    let total_size: u64 = artifacts
+        .par_iter()
+        .map(|(name, source)| -> Result<u64> {
+            let dest = staging_dir.join(name);
+            copy_file_fast(source, &dest)?;
+            Ok(fs::metadata(&dest).map(|m| m.len()).unwrap_or(0))
+        })
+        .try_reduce(|| 0u64, |a, b| Ok(a + b))?;
 
     // Atomically move staging -> final
     if final_dir.exists() {
@@ -406,27 +463,30 @@ pub fn store_build(fingerprint: &str, artifacts: &[(String, PathBuf)]) -> Result
 }
 
 pub fn restore_build(cache_path: &Path, target_dir: &Path) -> Result<usize> {
+    use rayon::prelude::*;
+
     fs::create_dir_all(target_dir)?;
-    let mut count = 0;
 
-    for entry in fs::read_dir(cache_path)? {
-        let entry = entry?;
-        let src = entry.path();
-        if !src.is_file() {
-            continue;
-        }
-        let name = entry.file_name();
-        let dest = target_dir.join(&name);
+    // Collect entries first, then restore in parallel
+    let entries: Vec<_> = fs::read_dir(cache_path)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .collect();
 
-        if dest.exists() {
-            fs::remove_file(&dest).ok();
-        }
+    let count: usize = entries
+        .par_iter()
+        .map(|entry| -> Result<usize> {
+            let src = entry.path();
+            let dest = target_dir.join(entry.file_name());
 
-        if fs::hard_link(&src, &dest).is_err() {
-            fs::copy(&src, &dest)?;
-        }
-        count += 1;
-    }
+            if dest.exists() {
+                fs::remove_file(&dest).ok();
+            }
+
+            copy_file_fast(&src, &dest)?;
+            Ok(1)
+        })
+        .try_reduce(|| 0usize, |a, b| Ok(a + b))?;
 
     Ok(count)
 }
