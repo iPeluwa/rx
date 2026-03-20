@@ -31,7 +31,7 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
-  check:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,10 +39,12 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --check
-      - run: cargo clippy -- -D warnings
-      - run: cargo test
-      - run: cargo build --release
+      - name: Install rx
+        run: cargo install --git https://github.com/iPeluwa/rx.git || cargo install --path .
+      - run: rx fmt --check
+      - run: rx lint
+      - run: rx test
+      - run: rx build --release
 
   test-macos:
     runs-on: macos-latest
@@ -56,7 +58,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - name: Read MSRV
         id: msrv
         run: echo "version=$(grep rust-version Cargo.toml | head -1 | sed 's/.*= *\"\(.*\)\"/\1/')" >> "$GITHUB_OUTPUT"

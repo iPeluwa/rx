@@ -30,6 +30,10 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             pgo: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            pgo: false
+            ext: .exe
 
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +64,6 @@ jobs:
         run: |
           BIN="target/${{ matrix.target }}/release/rx"
 
-          # Exercise all major CLI paths to generate profile data
           $BIN --help || true
           $BIN build --help || true
           $BIN test --help || true
@@ -76,8 +79,6 @@ jobs:
           $BIN completions bash > /dev/null || true
           $BIN completions zsh > /dev/null || true
           $BIN completions fish > /dev/null || true
-
-          # Run it against our own project as a real workload
           $BIN insights || true
           $BIN tree --depth 2 || true
           $BIN deps || true
@@ -86,7 +87,6 @@ jobs:
       - name: Merge PGO profiles
         if: matrix.pgo == true
         run: |
-          # Find llvm-profdata from the installed toolchain
           LLVM_PROFDATA=$(find $(rustc --print sysroot) -name llvm-profdata -type f | head -1)
           if [ -z "$LLVM_PROFDATA" ]; then
             echo "Warning: llvm-profdata not found, skipping PGO merge"
@@ -98,32 +98,63 @@ jobs:
       - name: Build PGO-optimized binary
         if: matrix.pgo == true
         run: |
-          # Clean previous build
           cargo clean --release --target ${{ matrix.target }}
           RUSTFLAGS="-Cprofile-use=$PWD/pgo-merged.profdata -Cllvm-args=-pgo-warn-missing-function" \
             cargo build --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
-      # --- Non-PGO: Standard build for cross-compiled targets ---
+      # --- Non-PGO: Standard build ---
       - name: Build (no PGO)
         if: matrix.pgo != true
         run: cargo build --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
-      - name: Package
-        shell: bash
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
           tar czf ../../../rx-${{ matrix.target }}.tar.gz rx
           cd ../../..
 
-      - name: Upload artifact
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          7z a ../../../rx-${{ matrix.target }}.zip rx.exe
+          cd ../../..
+
+      - name: Generate checksums (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          shasum -a 256 rx-${{ matrix.target }}.tar.gz > rx-${{ matrix.target }}.tar.gz.sha256
+
+      - name: Generate checksums (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 rx-${{ matrix.target }}.zip).Hash.ToLower()
+          "$hash  rx-${{ matrix.target }}.zip" | Out-File -Encoding ASCII rx-${{ matrix.target }}.zip.sha256
+
+      - name: Upload artifact (Unix)
+        if: runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: rx-${{ matrix.target }}
-          path: rx-${{ matrix.target }}.tar.gz
+          path: |
+            rx-${{ matrix.target }}.tar.gz
+            rx-${{ matrix.target }}.tar.gz.sha256
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rx-${{ matrix.target }}
+          path: |
+            rx-${{ matrix.target }}.zip
+            rx-${{ matrix.target }}.zip.sha256
 
   release:
     name: Create Release
@@ -140,4 +171,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: artifacts/*/rx-*.tar.gz
+          files: |
+            artifacts/*/rx-*.tar.gz
+            artifacts/*/rx-*.tar.gz.sha256
+            artifacts/*/rx-*.zip
+            artifacts/*/rx-*.zip.sha256

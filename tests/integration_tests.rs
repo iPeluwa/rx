@@ -315,3 +315,179 @@ fn integration_registry_list() {
         "rx registry list should mention 'crates.io', got: {stdout}"
     );
 }
+
+#[test]
+fn integration_check_succeeds() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "checktest");
+
+    let output = rx(&project, &["check", "--quiet"]);
+    assert!(
+        output.status.success(),
+        "rx check failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn integration_lint_succeeds() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "linttest");
+
+    let output = rx(&project, &["lint", "--quiet"]);
+    assert!(
+        output.status.success(),
+        "rx lint failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn integration_ci_runs() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "citest");
+
+    // Create rx.toml
+    rx(&project, &["init"]);
+
+    let output = rx(&project, &["ci", "--quiet"]);
+    assert!(
+        output.status.success(),
+        "rx ci failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn integration_script_list() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "scripttest");
+
+    // Create rx.toml with scripts
+    let rx_toml = project.join("rx.toml");
+    fs::write(
+        &rx_toml,
+        "[scripts]\ntestscript = \"echo test\"\nbuildscript = \"cargo build\"\n",
+    )
+    .unwrap();
+
+    let output = rx(&project, &["script"]);
+    assert!(
+        output.status.success(),
+        "rx script failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("testscript") && stdout.contains("buildscript"),
+        "rx script should list scripts, got: {stdout}"
+    );
+}
+
+#[test]
+fn integration_config_with_profile() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "profiletest");
+
+    // Create rx.toml with a profile
+    rx(&project, &["init"]);
+    let rx_toml = project.join("rx.toml");
+    let mut contents = fs::read_to_string(&rx_toml).unwrap();
+    contents.push_str("\n[profile.ci]\n[profile.ci.build]\ncache = false\n");
+    fs::write(&rx_toml, contents).unwrap();
+
+    let output = rx(&project, &["--profile", "ci", "config"]);
+    assert!(
+        output.status.success(),
+        "rx --profile ci config failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("[build]"),
+        "config output should show [build]"
+    );
+}
+
+#[test]
+fn integration_new_project() {
+    let tmp = TempDir::new().unwrap();
+
+    let output = rx(tmp.path(), &["new", "test-project"]);
+    assert!(
+        output.status.success(),
+        "rx new test-project failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let project_dir = tmp.path().join("test-project");
+    assert!(
+        project_dir.join("Cargo.toml").exists(),
+        "Cargo.toml should be created"
+    );
+}
+
+#[test]
+fn integration_clean_succeeds() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "cleantest");
+
+    // Build the project first
+    rx(&project, &["build", "--quiet"]);
+    assert!(
+        project.join("target").exists(),
+        "target dir should exist after build"
+    );
+
+    let output = rx(&project, &["clean"]);
+    assert!(
+        output.status.success(),
+        "rx clean failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn integration_stats_show() {
+    let tmp = TempDir::new().unwrap();
+
+    let output = rx(tmp.path(), &["stats", "show"]);
+    assert!(
+        output.status.success(),
+        "rx stats show failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn integration_help_output() {
+    let tmp = TempDir::new().unwrap();
+
+    let output = rx(tmp.path(), &["--help"]);
+    assert!(
+        output.status.success(),
+        "rx --help failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Usage") || stdout.contains("USAGE"),
+        "help output should contain usage information, got: {stdout}"
+    );
+}
+
+#[test]
+fn integration_version_output() {
+    let tmp = TempDir::new().unwrap();
+
+    let output = rx(tmp.path(), &["--version"]);
+    assert!(
+        output.status.success(),
+        "rx --version failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("rx"),
+        "version output should contain 'rx', got: {stdout}"
+    );
+}

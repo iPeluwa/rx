@@ -232,7 +232,7 @@ fn parse_publish_dry_run() {
 fn parse_completions() {
     let cli = parse(&["completions", "bash"]);
     match cli.command {
-        rx::cli::Command::Completions { shell } => {
+        rx::cli::Command::Completions { shell, .. } => {
             assert_eq!(shell, clap_complete::Shell::Bash);
         }
         _ => panic!("expected Completions"),
@@ -584,7 +584,7 @@ fn parse_explain() {
 #[test]
 fn parse_manpage() {
     let cli = parse(&["manpage"]);
-    assert!(matches!(cli.command, rx::cli::Command::Manpage));
+    assert!(matches!(cli.command, rx::cli::Command::Manpage { .. }));
 }
 
 #[test]

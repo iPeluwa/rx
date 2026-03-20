@@ -286,6 +286,9 @@ pub enum Command {
     Completions {
         /// Shell to generate completions for
         shell: Shell,
+        /// Install completions to the appropriate system location
+        #[arg(long)]
+        install: bool,
     },
 
     /// Analyze project health, build times, and dependency status
@@ -298,7 +301,11 @@ pub enum Command {
     },
 
     /// Generate a man page for rx
-    Manpage,
+    Manpage {
+        /// Install man page to the appropriate system location
+        #[arg(long)]
+        install: bool,
+    },
 
     /// Generate a Software Bill of Materials (SBOM)
     Sbom {
@@ -616,8 +623,12 @@ pub fn dispatch(cli: Cli) -> Result<()> {
     match &cli.command {
         Command::Doctor => return crate::doctor::doctor(),
         Command::SelfUpdate => return crate::selfupdate::self_update(),
-        Command::Completions { shell } => {
-            return crate::completions::generate_completions(*shell);
+        Command::Completions { shell, install } => {
+            return if *install {
+                crate::completions::install_completions(*shell)
+            } else {
+                crate::completions::generate_completions(*shell)
+            };
         }
         Command::Outdated => return crate::outdated::outdated(),
         Command::Audit => return crate::audit::audit(),
@@ -678,7 +689,13 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         } => return crate::release::release(version, *dry_run, *no_push),
         Command::Insights => return crate::insights::insights(),
         Command::Explain { code } => return crate::hints::explain(code),
-        Command::Manpage => return crate::completions::generate_manpage(),
+        Command::Manpage { install } => {
+            return if *install {
+                crate::completions::install_manpage()
+            } else {
+                crate::completions::generate_manpage()
+            };
+        }
         Command::Sbom { format, output } => {
             return crate::sbom::generate_sbom(format, output.as_deref());
         }
@@ -856,7 +873,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         | Command::Release { .. }
         | Command::Insights
         | Command::Explain { .. }
-        | Command::Manpage
+        | Command::Manpage { .. }
         | Command::Sbom { .. }
         | Command::TestAdvanced(_)
         | Command::Daemon(_)

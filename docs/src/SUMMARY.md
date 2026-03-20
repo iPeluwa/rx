@@ -29,3 +29,4 @@
   - [VS Code Extension](./ci/vscode.md)
 - [Performance](./performance.md)
 - [Architecture](./architecture.md)
+- [Comparison](./comparison.md)
