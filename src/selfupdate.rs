@@ -36,12 +36,7 @@ pub fn self_update_with_options(skip_verify: bool) -> Result<()> {
         download_release(&target, &archive_path)?;
         pb.finish_and_clear();
 
-        // Extract the binary
-        let pb = crate::output::spinner("extracting binary...");
-        extract_binary(&archive_path, &binary_path)?;
-        pb.finish_and_clear();
-
-        // Verify checksum unless skipped
+        // Verify checksum of the archive before extracting
         if !skip_verify {
             let pb = crate::output::spinner("verifying checksum...");
             verify_checksum(&target, &binary_path)?;
@@ -50,6 +45,11 @@ pub fn self_update_with_options(skip_verify: bool) -> Result<()> {
         } else {
             crate::output::info("skipping checksum verification");
         }
+
+        // Extract the binary
+        let pb = crate::output::spinner("extracting binary...");
+        extract_binary(&archive_path, &binary_path)?;
+        pb.finish_and_clear();
 
         // Install the binary
         let pb = crate::output::spinner("installing binary...");
@@ -184,9 +184,11 @@ fn install_binary(binary_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn verify_checksum(target: &str, binary_path: &Path) -> Result<()> {
-    // Download the checksum file
+fn verify_checksum(target: &str, _binary_path: &Path) -> Result<()> {
+    // The .sha256 file is for the archive, not the extracted binary.
+    // Verify the archive checksum before extraction.
     let temp_dir = std::env::temp_dir();
+    let archive_path = temp_dir.join(format!("rx-{}.tar.gz", target));
     let checksum_path = temp_dir.join(format!("rx-{}.tar.gz.sha256", target));
 
     let url = format!(
@@ -209,8 +211,8 @@ fn verify_checksum(target: &str, binary_path: &Path) -> Result<()> {
         std::fs::read_to_string(&checksum_path).context("failed to read checksum file")?;
     let expected = parse_checksum(&expected)?;
 
-    // Compute actual checksum
-    let actual = compute_sha256(binary_path)?;
+    // Compute actual checksum of the archive (not the extracted binary)
+    let actual = compute_sha256(&archive_path)?;
 
     if actual != expected {
         anyhow::bail!(
