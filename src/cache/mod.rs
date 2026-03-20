@@ -609,9 +609,7 @@ fn export(output: Option<&str>) -> Result<()> {
         anyhow::bail!("tar failed to create archive");
     }
 
-    let size = fs::metadata(output_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let size = fs::metadata(output_path).map(|m| m.len()).unwrap_or(0);
     crate::output::success(&format!(
         "cache exported to {output_path} ({:.1} MB)",
         size as f64 / 1_048_576.0
