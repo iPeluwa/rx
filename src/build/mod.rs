@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -7,8 +8,67 @@ use crate::cache;
 use crate::config::RxConfig;
 use crate::output::Timer;
 
-/// Detect the fastest available linker on the system.
+// ---------------------------------------------------------------------------
+// Persistent environment/linker detection cache (~/.rx/env.lock)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Default)]
+struct EnvCache {
+    linker: Option<String>,
+    has_nextest: Option<bool>,
+    has_mold: Option<bool>,
+    has_lld: Option<bool>,
+}
+
+fn env_cache_path() -> Result<PathBuf> {
+    let home = dirs::home_dir().context("could not determine home directory")?;
+    Ok(home.join(".rx").join("env.lock"))
+}
+
+fn load_env_cache() -> EnvCache {
+    let path = match env_cache_path() {
+        Ok(p) => p,
+        Err(_) => return EnvCache::default(),
+    };
+    if !path.exists() {
+        return EnvCache::default();
+    }
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_env_cache(cache: &EnvCache) {
+    if let Ok(path) = env_cache_path() {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
+        if let Ok(json) = serde_json::to_string_pretty(cache) {
+            fs::write(&path, json).ok();
+        }
+    }
+}
+
+/// Detect the fastest available linker, using persistent cache.
 fn detect_linker() -> Option<&'static str> {
+    let mut env = load_env_cache();
+
+    if let Some(ref cached) = env.linker {
+        return match cached.as_str() {
+            "mold" => Some("mold"),
+            "lld" => Some("lld"),
+            _ => None,
+        };
+    }
+
+    let result = detect_linker_fresh();
+    env.linker = Some(result.unwrap_or("none").to_string());
+    save_env_cache(&env);
+    result
+}
+
+fn detect_linker_fresh() -> Option<&'static str> {
     let candidates = [("mold", "mold"), ("lld", "lld")];
     for (name, bin) in candidates {
         if Command::new("which")
@@ -30,6 +90,13 @@ fn resolve_linker(config: &RxConfig) -> Option<String> {
         "mold" => Some("mold".into()),
         "lld" => Some("lld".into()),
         _ => detect_linker().map(|s| s.to_string()), // "auto"
+    }
+}
+
+/// Invalidate the env detection cache (called by `rx doctor`).
+pub fn invalidate_env_cache() {
+    if let Ok(path) = env_cache_path() {
+        fs::remove_file(&path).ok();
     }
 }
 

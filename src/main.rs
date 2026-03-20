@@ -4,6 +4,7 @@ mod bench;
 mod bloat;
 mod build;
 mod cache;
+mod cargo_output;
 mod check;
 mod ci;
 mod cli;

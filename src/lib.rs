@@ -4,6 +4,7 @@ pub mod bench;
 pub mod bloat;
 pub mod build;
 pub mod cache;
+pub mod cargo_output;
 pub mod check;
 pub mod ci;
 pub mod cli;

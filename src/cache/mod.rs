@@ -1,13 +1,13 @@
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use time::OffsetDateTime;
 use walkdir::WalkDir;
+use xxhash_rust::xxh3::xxh3_128;
 
 use crate::cli::CacheCommand;
 
@@ -18,7 +18,8 @@ use crate::cli::CacheCommand;
 #[derive(Serialize, Deserialize)]
 struct ArtifactEntry {
     content_hash: String,
-    last_accessed: DateTime<Utc>,
+    #[serde(with = "time::serde::rfc3339")]
+    last_accessed: OffsetDateTime,
     size: u64,
 }
 
@@ -50,9 +51,8 @@ fn lock_path() -> Result<PathBuf> {
 }
 
 fn mtime_path(project_root: &Path) -> Result<PathBuf> {
-    let mut hasher = Sha256::new();
-    hasher.update(project_root.to_string_lossy().as_bytes());
-    let key = hex::encode(&hasher.finalize()[..8]);
+    let hash = xxh3_128(project_root.to_string_lossy().as_bytes());
+    let key = format!("{hash:016x}");
     Ok(cache_dir()?.join("mtimes").join(format!("{key}.toml")))
 }
 
@@ -241,13 +241,12 @@ fn try_mtime_fast_path(
         }
     }
 
-    let mut config_hasher = Sha256::new();
-    config_hasher.update(profile.as_bytes());
-    config_hasher.update(b"\0");
+    let mut config_input = profile.as_bytes().to_vec();
+    config_input.push(0);
     if let Some(flags) = rustflags {
-        config_hasher.update(flags.as_bytes());
+        config_input.extend_from_slice(flags.as_bytes());
     }
-    let config_hash = hex::encode(&config_hasher.finalize()[..8]);
+    let config_hash = format!("{:016x}", xxh3_128(&config_input));
 
     if snapshot.fingerprint.starts_with(&config_hash) {
         Some(snapshot.fingerprint.clone())
@@ -271,34 +270,34 @@ pub fn compute_build_fingerprint(
 
     crate::output::verbose("fingerprint: computing full content hash...");
 
-    let mut hasher = Sha256::new();
+    let mut buf = Vec::new();
 
-    let mut config_hasher = Sha256::new();
-    config_hasher.update(profile.as_bytes());
-    config_hasher.update(b"\0");
+    // Config prefix (for mtime fast-path matching)
+    let mut config_input = profile.as_bytes().to_vec();
+    config_input.push(0);
     if let Some(flags) = rustflags {
-        config_hasher.update(flags.as_bytes());
+        config_input.extend_from_slice(flags.as_bytes());
     }
-    let config_prefix = hex::encode(&config_hasher.finalize()[..8]);
+    let config_prefix = format!("{:016x}", xxh3_128(&config_input));
 
-    hasher.update(profile.as_bytes());
-    hasher.update(b"\0");
+    buf.extend_from_slice(profile.as_bytes());
+    buf.push(0);
     if let Some(flags) = rustflags {
-        hasher.update(flags.as_bytes());
+        buf.extend_from_slice(flags.as_bytes());
     }
-    hasher.update(b"\0");
+    buf.push(0);
 
     let cargo_toml = project_root.join("Cargo.toml");
     if cargo_toml.exists() {
-        hasher.update(fs::read(&cargo_toml)?);
+        buf.extend_from_slice(&fs::read(&cargo_toml)?);
     }
-    hasher.update(b"\0");
+    buf.push(0);
 
     let cargo_lock = project_root.join("Cargo.lock");
     if cargo_lock.exists() {
-        hasher.update(fs::read(&cargo_lock)?);
+        buf.extend_from_slice(&fs::read(&cargo_lock)?);
     }
-    hasher.update(b"\0");
+    buf.push(0);
 
     let src_dir = project_root.join("src");
     if src_dir.exists() {
@@ -312,14 +311,14 @@ pub fn compute_build_fingerprint(
 
         for file in &rs_files {
             let rel = file.strip_prefix(project_root).unwrap_or(file);
-            hasher.update(rel.to_string_lossy().as_bytes());
-            hasher.update(b"\0");
-            hasher.update(fs::read(file)?);
-            hasher.update(b"\0");
+            buf.extend_from_slice(rel.to_string_lossy().as_bytes());
+            buf.push(0);
+            buf.extend_from_slice(&fs::read(file)?);
+            buf.push(0);
         }
     }
 
-    let content_hash = hex::encode(hasher.finalize());
+    let content_hash = format!("{:032x}", xxh3_128(&buf));
     let fingerprint = format!("{config_prefix}{content_hash}");
 
     // Save mtime snapshot for future fast-path
@@ -351,7 +350,7 @@ pub fn lookup_build(fingerprint: &str) -> Result<Option<PathBuf>> {
     if dir.exists() && fs::read_dir(&dir)?.next().is_some() {
         let mut index = load_index()?;
         if let Some(entry) = index.artifacts.get_mut(fingerprint) {
-            entry.last_accessed = Utc::now();
+            entry.last_accessed = OffsetDateTime::now_utc();
             save_index(&index)?;
         }
         Ok(Some(dir))
@@ -397,7 +396,7 @@ pub fn store_build(fingerprint: &str, artifacts: &[(String, PathBuf)]) -> Result
         fingerprint.to_string(),
         ArtifactEntry {
             content_hash: fingerprint.to_string(),
-            last_accessed: Utc::now(),
+            last_accessed: OffsetDateTime::now_utc(),
             size: total_size,
         },
     );
@@ -471,7 +470,7 @@ fn status() -> Result<()> {
 fn gc(older_than_days: u32) -> Result<()> {
     let _lock = FileLock::acquire()?;
     let mut index = load_index()?;
-    let cutoff = Utc::now() - chrono::Duration::days(i64::from(older_than_days));
+    let cutoff = OffsetDateTime::now_utc() - time::Duration::days(i64::from(older_than_days));
     let stale_keys: Vec<String> = index
         .artifacts
         .iter()

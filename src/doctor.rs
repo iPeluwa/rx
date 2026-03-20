@@ -110,15 +110,6 @@ pub fn doctor() -> Result<()> {
                 hint: "cargo install cargo-nextest (optional, faster test runner)",
             }
         },
-        {
-            let (found, version) = check_cargo_plugin("watch");
-            Check {
-                name: "cargo-watch",
-                found,
-                version,
-                hint: "cargo install cargo-watch (optional, file watcher)",
-            }
-        },
     ];
 
     let mut missing_required = 0;
@@ -154,6 +145,10 @@ pub fn doctor() -> Result<()> {
     } else {
         println!("  {} (not initialized)", "Cache:".dimmed());
     }
+
+    // Invalidate env detection cache so next build re-detects tools
+    crate::build::invalidate_env_cache();
+    println!("  {} refreshed", "Env cache:".dimmed());
 
     if missing_required > 0 {
         println!(

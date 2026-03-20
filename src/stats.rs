@@ -51,7 +51,9 @@ pub fn record(command: &str, start: Instant, success: bool) {
     }
 
     let record = BuildRecord {
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_default(),
         command: command.to_string(),
         duration_secs: duration,
         success,
