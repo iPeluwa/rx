@@ -6,7 +6,8 @@
 //! of upstream, reducing wall-clock time for workspace builds.
 
 use anyhow::Result;
-use std::collections::{HashMap, HashSet};
+use dashmap::DashMap;
+use std::collections::HashSet;
 use std::process::Command;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -37,46 +38,50 @@ pub struct PipelineResult {
 }
 
 /// Shared state for the event-driven scheduler.
+///
+/// Uses DashMap for lock-free concurrent reads of crate states,
+/// with a separate Condvar for dependency-wait notification.
 struct SchedulerState {
-    states: Mutex<HashMap<String, CrateState>>,
+    states: DashMap<String, CrateState>,
+    /// Used only for signaling state changes to waiting threads.
+    notify: Mutex<()>,
     condvar: Condvar,
 }
 
 impl SchedulerState {
     fn new(members: &[Member]) -> Self {
-        let states = members
-            .iter()
-            .map(|m| (m.name.clone(), CrateState::Pending))
-            .collect();
+        let states = DashMap::new();
+        for m in members {
+            states.insert(m.name.clone(), CrateState::Pending);
+        }
 
         Self {
-            states: Mutex::new(states),
+            states,
+            notify: Mutex::new(()),
             condvar: Condvar::new(),
         }
     }
 
     /// Update the state of a crate and notify all waiting threads.
     fn update_state(&self, name: &str, state: CrateState) {
-        let mut states = self.states.lock().unwrap();
-        states.insert(name.to_string(), state);
-        drop(states);
+        self.states.insert(name.to_string(), state);
+        let _lock = self.notify.lock().unwrap();
         self.condvar.notify_all();
     }
 
     #[cfg(test)]
     fn get_state(&self, name: &str) -> Option<CrateState> {
-        let states = self.states.lock().unwrap();
-        states.get(name).cloned()
+        self.states.get(name).map(|r| r.clone())
     }
 
     /// Wait until all dependencies have reached MetadataReady or Done state.
     fn wait_for_deps(&self, deps: &HashSet<String>) {
-        let mut states = self.states.lock().unwrap();
+        let mut lock = self.notify.lock().unwrap();
 
         loop {
             let all_ready = deps.iter().all(|dep_name| {
-                if let Some(state) = states.get(dep_name) {
-                    matches!(state, CrateState::MetadataReady | CrateState::Done)
+                if let Some(state) = self.states.get(dep_name) {
+                    matches!(*state, CrateState::MetadataReady | CrateState::Done)
                 } else {
                     false
                 }
@@ -86,7 +91,7 @@ impl SchedulerState {
                 break;
             }
 
-            states = self.condvar.wait(states).unwrap();
+            lock = self.condvar.wait(lock).unwrap();
         }
     }
 }
@@ -243,10 +248,6 @@ pub fn pipelined_build(
     run_event_driven(graph, release, jobs)
 }
 
-#[allow(dead_code)]
-fn wait_for_deps_metadata(_name: &str, _states: &Arc<Mutex<HashMap<String, CrateState>>>) {
-    // Deprecated: kept for backwards compatibility, but not used in event-driven approach.
-}
 
 #[allow(dead_code)]
 pub fn print_summary(results: &[PipelineResult]) {

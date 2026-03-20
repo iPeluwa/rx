@@ -34,6 +34,7 @@ reflink-copy = "0.1"
 syn = { version = "2", features = ["full", "parsing"] }
 quote = "1"
 memmap2 = "0.9"
+dashmap = "6"
 
 [profile.release]
 lto = "thin"
