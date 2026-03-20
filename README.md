@@ -8,6 +8,8 @@
   <a href="https://github.com/iPeluwa/rx/actions/workflows/ci.yml"><img src="https://github.com/iPeluwa/rx/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/iPeluwa/rx/releases"><img src="https://img.shields.io/github/v/release/iPeluwa/rx?label=latest" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <a href="https://ipeluwa.github.io/rx/"><img src="https://img.shields.io/badge/docs-mdBook-blue" alt="Docs"></a>
+  <a href="https://github.com/iPeluwa/rx"><img src="https://img.shields.io/badge/MSRV-1.85.0-orange" alt="MSRV"></a>
 </p>
 
 <p align="center">A fast, unified Rust toolchain manager. One binary to replace the fragmented Rust CLI ecosystem.</p>

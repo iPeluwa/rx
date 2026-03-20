@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" fill="none">
+  <rect width="1280" height="640" fill="#1a1a2e"/>
+  <text x="640" y="260" text-anchor="middle" font-family="monospace" font-weight="bold" font-size="180" fill="#e94560">rx</text>
+  <text x="640" y="360" text-anchor="middle" font-family="monospace" font-size="40" fill="#eaeaea">A fast, unified Rust toolchain manager</text>
+  <text x="640" y="440" text-anchor="middle" font-family="monospace" font-size="28" fill="#7f8c8d">Build faster. Ship sooner.</text>
+  <text x="640" y="520" text-anchor="middle" font-family="monospace" font-size="24" fill="#555">github.com/iPeluwa/rx</text>
+</svg>

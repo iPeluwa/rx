@@ -25,6 +25,14 @@ get_os() {
     esac
 }
 
+is_windows() {
+    os=$(uname -s)
+    case "$os" in
+        MINGW*|MSYS*|CYGWIN*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 main() {
     echo "Installing rx..."
 
@@ -46,37 +54,66 @@ main() {
         exit 0
     fi
 
-    URL="https://github.com/${REPO}/releases/download/${LATEST}/rx-${TARGET}.tar.gz"
-
     echo "Downloading rx ${LATEST} for ${TARGET}..."
 
     TMPDIR=$(mktemp -d)
     trap 'rm -rf "$TMPDIR"' EXIT
 
-    if ! curl -sL "$URL" -o "$TMPDIR/rx.tar.gz"; then
-        echo "Download failed. Building from source instead..."
-        cargo install --git "https://github.com/${REPO}.git" --tag "$LATEST"
-        echo "rx ${LATEST} installed via cargo install."
-        exit 0
+    if is_windows; then
+        # Windows: download .zip
+        URL="https://github.com/${REPO}/releases/download/${LATEST}/rx-${TARGET}.zip"
+        if ! curl -sL "$URL" -o "$TMPDIR/rx.zip"; then
+            echo "Download failed. Building from source instead..."
+            cargo install --git "https://github.com/${REPO}.git" --tag "$LATEST"
+            echo "rx ${LATEST} installed via cargo install."
+            exit 0
+        fi
+
+        # Extract — try unzip first, fall back to 7z
+        if command -v unzip >/dev/null 2>&1; then
+            unzip -q "$TMPDIR/rx.zip" -d "$TMPDIR"
+        elif command -v 7z >/dev/null 2>&1; then
+            7z x -o"$TMPDIR" "$TMPDIR/rx.zip" > /dev/null
+        else
+            echo "Error: unzip or 7z required to extract on Windows"
+            exit 1
+        fi
+
+        mkdir -p "$INSTALL_DIR"
+        mv "$TMPDIR/rx.exe" "$INSTALL_DIR/rx.exe"
+
+        echo "rx ${LATEST} installed to ${INSTALL_DIR}/rx.exe"
+        echo ""
+        echo "Add rx to your PATH:"
+        echo "  setx PATH \"%PATH%;${INSTALL_DIR}\""
+    else
+        # Unix: download .tar.gz
+        URL="https://github.com/${REPO}/releases/download/${LATEST}/rx-${TARGET}.tar.gz"
+        if ! curl -sL "$URL" -o "$TMPDIR/rx.tar.gz"; then
+            echo "Download failed. Building from source instead..."
+            cargo install --git "https://github.com/${REPO}.git" --tag "$LATEST"
+            echo "rx ${LATEST} installed via cargo install."
+            exit 0
+        fi
+
+        tar -xzf "$TMPDIR/rx.tar.gz" -C "$TMPDIR"
+
+        mkdir -p "$INSTALL_DIR"
+        mv "$TMPDIR/rx" "$INSTALL_DIR/rx"
+        chmod +x "$INSTALL_DIR/rx"
+
+        echo "rx ${LATEST} installed to ${INSTALL_DIR}/rx"
+
+        # Check if install dir is in PATH
+        case ":$PATH:" in
+            *":$INSTALL_DIR:"*) ;;
+            *)
+                echo ""
+                echo "Add rx to your PATH by adding this to your shell config:"
+                echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+                ;;
+        esac
     fi
-
-    tar -xzf "$TMPDIR/rx.tar.gz" -C "$TMPDIR"
-
-    mkdir -p "$INSTALL_DIR"
-    mv "$TMPDIR/rx" "$INSTALL_DIR/rx"
-    chmod +x "$INSTALL_DIR/rx"
-
-    echo "rx ${LATEST} installed to ${INSTALL_DIR}/rx"
-
-    # Check if install dir is in PATH
-    case ":$PATH:" in
-        *":$INSTALL_DIR:"*) ;;
-        *)
-            echo ""
-            echo "Add rx to your PATH by adding this to your shell config:"
-            echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
-            ;;
-    esac
 }
 
 main
