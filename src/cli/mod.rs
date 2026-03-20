@@ -570,10 +570,20 @@ pub enum WsCommand {
 
 #[derive(Subcommand)]
 pub enum EnvCommand {
-    /// Show resolved environment variables from rx.toml
+    /// Show resolved environment variables from rx.toml and .env
     Show,
-    /// Spawn a shell with rx.toml env vars loaded
+    /// Spawn a shell with rx.toml and .env vars loaded
     Shell,
+    /// Check .env against .env.example for missing variables
+    Check,
+    /// Add a variable to .env.example
+    AddExample {
+        /// Variable name
+        name: String,
+        /// Optional description comment
+        #[arg(long)]
+        description: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -853,6 +863,10 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Env(cmd) => match cmd {
             EnvCommand::Show => crate::env::show_env(&config),
             EnvCommand::Shell => crate::env::shell(&config),
+            EnvCommand::Check => crate::env::check_env(&config),
+            EnvCommand::AddExample { name, description } => {
+                crate::env::add_example(&name, description.as_deref())
+            }
         },
         // Already handled above
         Command::Doctor
