@@ -583,11 +583,80 @@ fn purge() -> Result<()> {
     Ok(())
 }
 
+fn export(output: Option<&str>) -> Result<()> {
+    let dir = cache_dir()?;
+    if !dir.exists() {
+        anyhow::bail!("cache directory does not exist — nothing to export");
+    }
+
+    let output_path = output.unwrap_or("rx-cache.tar.gz");
+    crate::output::info(&format!("exporting cache to {output_path}..."));
+
+    let status = std::process::Command::new("tar")
+        .args([
+            "czf",
+            output_path,
+            "--exclude",
+            ".lock",
+            "-C",
+            &dir.to_string_lossy(),
+            ".",
+        ])
+        .status()
+        .context("failed to run tar — is it installed?")?;
+
+    if !status.success() {
+        anyhow::bail!("tar failed to create archive");
+    }
+
+    let size = fs::metadata(output_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    crate::output::success(&format!(
+        "cache exported to {output_path} ({:.1} MB)",
+        size as f64 / 1_048_576.0
+    ));
+    Ok(())
+}
+
+fn import(path: &str) -> Result<()> {
+    if !Path::new(path).exists() {
+        anyhow::bail!("archive not found: {path}");
+    }
+
+    let dir = cache_dir()?;
+    fs::create_dir_all(&dir)?;
+
+    // Count artifacts before import
+    let before = load_index().map(|i| i.artifacts.len()).unwrap_or(0);
+
+    crate::output::info(&format!("importing cache from {path}..."));
+
+    let status = std::process::Command::new("tar")
+        .args(["xzf", path, "-C", &dir.to_string_lossy()])
+        .status()
+        .context("failed to run tar — is it installed?")?;
+
+    if !status.success() {
+        anyhow::bail!("tar failed to extract archive");
+    }
+
+    let after = load_index().map(|i| i.artifacts.len()).unwrap_or(0);
+    let new_count = after.saturating_sub(before);
+
+    crate::output::success(&format!(
+        "cache imported: {after} total artifacts ({new_count} new)"
+    ));
+    Ok(())
+}
+
 pub fn dispatch(cmd: CacheCommand) -> Result<()> {
     match cmd {
         CacheCommand::Status => status(),
         CacheCommand::Gc { older_than } => gc(older_than),
         CacheCommand::Purge => purge(),
+        CacheCommand::Export { output } => export(output.as_deref()),
+        CacheCommand::Import { path } => import(&path),
     }
 }
 
