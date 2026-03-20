@@ -143,8 +143,7 @@ pub fn audit() -> Result<()> {
     }
 
     let contents = fs::read_to_string("Cargo.lock").context("failed to read Cargo.lock")?;
-    let lockfile: CargoLock =
-        toml::from_str(&contents).context("failed to parse Cargo.lock")?;
+    let lockfile: CargoLock = toml::from_str(&contents).context("failed to parse Cargo.lock")?;
 
     let packages = &lockfile.package;
     let total = packages.len();
@@ -175,10 +174,7 @@ pub fn audit() -> Result<()> {
     // Find duplicate major versions
     let mut by_name: HashMap<&str, Vec<&str>> = HashMap::new();
     for pkg in packages {
-        by_name
-            .entry(&pkg.name)
-            .or_default()
-            .push(&pkg.version);
+        by_name.entry(&pkg.name).or_default().push(&pkg.version);
     }
 
     let mut duplicates: Vec<(&str, Vec<&str>)> = Vec::new();
@@ -212,27 +208,14 @@ pub fn audit() -> Result<()> {
     println!("{}", "Cargo.lock Audit".bold());
     println!("{}", "━".repeat(60).dimmed());
 
-    println!(
-        "  Total dependencies:    {:>4}",
-        total
-    );
-    println!(
-        "  Registry (crates.io):  {:>4}",
-        registry_count
-    );
+    println!("  Total dependencies:    {:>4}", total);
+    println!("  Registry (crates.io):  {:>4}", registry_count);
     if path_deps > 0 {
-        println!(
-            "  Path (local):          {:>4}",
-            path_deps
-        );
+        println!("  Path (local):          {:>4}", path_deps);
     }
 
     if git_deps.is_empty() {
-        println!(
-            "  Git dependencies:      {:>4}  {}",
-            0,
-            "✓".green()
-        );
+        println!("  Git dependencies:      {:>4}  {}", 0, "✓".green());
     } else {
         println!(
             "  Git dependencies:      {:>4}  {}",
@@ -242,11 +225,7 @@ pub fn audit() -> Result<()> {
     }
 
     if duplicates.is_empty() {
-        println!(
-            "  Duplicate versions:    {:>4}  {}",
-            0,
-            "✓".green()
-        );
+        println!("  Duplicate versions:    {:>4}  {}", 0, "✓".green());
     } else {
         println!(
             "  Duplicate versions:    {:>4}  {}",
@@ -256,11 +235,7 @@ pub fn audit() -> Result<()> {
     }
 
     if missing_checksums == 0 {
-        println!(
-            "  Missing checksums:     {:>4}  {}",
-            0,
-            "✓".green()
-        );
+        println!("  Missing checksums:     {:>4}  {}", 0, "✓".green());
     } else {
         println!(
             "  Missing checksums:     {:>4}  {}",
@@ -293,11 +268,7 @@ pub fn audit() -> Result<()> {
         format!("{}/100", score).red().to_string()
     };
 
-    println!(
-        "\n  {} {}",
-        "Reproducibility score:".bold(),
-        score_color
-    );
+    println!("\n  {} {}", "Reproducibility score:".bold(), score_color);
 
     println!("{}", "━".repeat(60).dimmed());
 
