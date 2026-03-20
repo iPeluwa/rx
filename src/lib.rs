@@ -42,8 +42,8 @@ pub mod sbom;
 pub mod script;
 pub mod selfupdate;
 pub mod semantic_hash;
-pub mod speculative;
 pub mod size;
+pub mod speculative;
 pub mod stats;
 #[allow(dead_code)]
 pub mod telemetry;

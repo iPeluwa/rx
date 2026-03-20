@@ -852,7 +852,9 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                         // Speculative check failed — fall through to normal check
                         // to get proper error output
                     } else {
-                        crate::output::verbose("custom RUSTFLAGS detected, discarding speculative check");
+                        crate::output::verbose(
+                            "custom RUSTFLAGS detected, discarding speculative check",
+                        );
                         checker.cancel();
                     }
                 }

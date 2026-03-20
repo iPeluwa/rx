@@ -248,7 +248,6 @@ pub fn pipelined_build(
     run_event_driven(graph, release, jobs)
 }
 
-
 #[allow(dead_code)]
 pub fn print_summary(results: &[PipelineResult]) {
     let total_check: Duration = results.iter().map(|r| r.check_duration).sum();
