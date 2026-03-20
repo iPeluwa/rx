@@ -39,3 +39,7 @@ debug = 1
 
 [dev-dependencies]
 tempfile = "3"
+
+[[bench]]
+name = "fingerprint_bench"
+harness = false

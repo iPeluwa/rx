@@ -453,6 +453,8 @@ pub enum PkgCommand {
     },
     /// Find and show duplicate dependency versions
     Dedupe,
+    /// Check MSRV compatibility of dependencies
+    Compat,
 }
 
 #[derive(Subcommand)]

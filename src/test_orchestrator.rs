@@ -264,3 +264,31 @@ pub fn show_flaky() -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_test_history_is_empty() {
+        let history = TestHistory::default();
+        assert!(history.failures.is_empty());
+        assert!(history.durations.is_empty());
+        assert!(history.flaky.is_empty());
+    }
+
+    #[test]
+    fn test_history_roundtrip_serialize() {
+        let mut history = TestHistory::default();
+        history.failures.insert("test_foo".to_string(), 3);
+        history.durations.insert("test_foo".to_string(), 1.5);
+        history.flaky.push("test_bar".to_string());
+
+        let json = serde_json::to_string(&history).expect("serialize failed");
+        let restored: TestHistory = serde_json::from_str(&json).expect("deserialize failed");
+
+        assert_eq!(restored.failures.get("test_foo"), Some(&3));
+        assert_eq!(restored.durations.get("test_foo"), Some(&1.5));
+        assert_eq!(restored.flaky, vec!["test_bar".to_string()]);
+    }
+}

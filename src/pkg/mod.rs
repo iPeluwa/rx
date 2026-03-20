@@ -158,5 +158,6 @@ pub fn dispatch(cmd: PkgCommand) -> Result<()> {
         PkgCommand::List => list(),
         PkgCommand::Why { name } => why(&name),
         PkgCommand::Dedupe => dedupe(),
+        PkgCommand::Compat => crate::compat::check_compat(),
     }
 }

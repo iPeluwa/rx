@@ -183,3 +183,40 @@ pub fn status() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_telemetry_data_has_enabled_false() {
+        let data = TelemetryData::default();
+        assert!(!data.enabled);
+        assert!(data.commands.is_empty());
+        assert!(data.features_used.is_empty());
+        assert_eq!(data.total_invocations, 0);
+        assert!(data.first_seen.is_none());
+        assert!(data.platform.is_none());
+    }
+
+    #[test]
+    fn telemetry_data_roundtrip_serialize() {
+        let mut data = TelemetryData::default();
+        data.enabled = true;
+        data.commands.insert("build".to_string(), 5);
+        data.features_used.push("remote-cache".to_string());
+        data.total_invocations = 42;
+        data.first_seen = Some("2025-01-01T00:00:00Z".to_string());
+        data.platform = Some("macos-aarch64".to_string());
+
+        let json = serde_json::to_string(&data).expect("serialize failed");
+        let restored: TelemetryData = serde_json::from_str(&json).expect("deserialize failed");
+
+        assert!(restored.enabled);
+        assert_eq!(restored.commands.get("build"), Some(&5));
+        assert_eq!(restored.features_used, vec!["remote-cache".to_string()]);
+        assert_eq!(restored.total_invocations, 42);
+        assert_eq!(restored.first_seen.as_deref(), Some("2025-01-01T00:00:00Z"));
+        assert_eq!(restored.platform.as_deref(), Some("macos-aarch64"));
+    }
+}

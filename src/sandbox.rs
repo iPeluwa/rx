@@ -116,7 +116,8 @@ fn build_minimal_env() -> HashMap<String, String> {
         "/usr/bin".to_string(),
         "/bin".to_string(),
     ]);
-    env.insert("PATH".into(), paths.join(":"));
+    let separator = if cfg!(windows) { ";" } else { ":" };
+    env.insert("PATH".into(), paths.join(separator));
 
     // Cargo needs these
     env.insert("CARGO_TERM_COLOR".into(), "always".into());
@@ -127,4 +128,35 @@ fn build_minimal_env() -> HashMap<String, String> {
     }
 
     env
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn minimal_env_contains_path() {
+        let env = build_minimal_env();
+        assert!(env.contains_key("PATH"), "expected PATH in minimal env");
+    }
+
+    #[test]
+    fn minimal_env_path_contains_system_dirs() {
+        let env = build_minimal_env();
+        let path = env.get("PATH").expect("PATH missing");
+        assert!(path.contains("/usr/bin"), "PATH should contain /usr/bin");
+        assert!(
+            path.contains("/usr/local/bin"),
+            "PATH should contain /usr/local/bin"
+        );
+    }
+
+    #[test]
+    fn minimal_env_contains_cargo_term_color() {
+        let env = build_minimal_env();
+        assert_eq!(
+            env.get("CARGO_TERM_COLOR").map(|s| s.as_str()),
+            Some("always")
+        );
+    }
 }

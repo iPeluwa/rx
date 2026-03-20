@@ -1,5 +1,7 @@
 # rx
 
+[![CI](https://github.com/iPeluwa/rx/actions/workflows/ci.yml/badge.svg)](https://github.com/iPeluwa/rx/actions/workflows/ci.yml)
+
 A fast, unified Rust toolchain manager. One binary to replace the fragmented Rust CLI ecosystem.
 
 ## Why
@@ -10,23 +12,33 @@ The Rust toolchain is powerful but fragmented. You need `rustup`, `cargo`, `clip
 
 - **Fast builds** — auto-detects `mold`/`lld` linkers, caches detection results persistently
 - **Global artifact cache** — content-addressed store with xxHash fingerprinting, atomic writes, file locking, and mtime fast-path
+- **Remote cache** — share build artifacts across CI runners via S3, GCS, or local path
+- **Semantic fingerprinting** — only rebuild when public API changes, not on comment edits
+- **Pipelined builds** — overlap type-checking with codegen in workspace builds
 - **Cross-compilation** — `rx build --target <triple>` for easy cross-compiling
 - **Workspace orchestration** — dependency-aware parallel execution across workspace members
 - **Unified commands** — `rx test` uses nextest when available, `rx lint` runs clippy with strict defaults, `rx fmt` runs rustfmt
 - **One-command CI** — `rx ci` runs your full pipeline locally (fmt, clippy, test, build)
 - **Auto-fix everything** — `rx fix` applies compiler suggestions, clippy fixes, and formatting in one step
+- **Smart test orchestration** — failure-based ordering, parallel sharding, flaky test detection
+- **MSRV checking** — `rx compat` verifies code and deps work on your declared rust-version
+- **Build sandbox** — isolated builds to detect undeclared dependencies
+- **Background daemon** — persistent process holds workspace state for instant command startup
+- **Persistent workers** — pre-warmed check/fmt/lint processes for zero cold-start
 - **Project config** — `rx.toml` with profiles, scripts, env vars, and config validation
 - **Project templates** — `rx new --template axum/cli/wasm/lib` for opinionated scaffolding
 - **Release automation** — `rx release patch` bumps version, commits, tags, and pushes
 - **Native file watcher** — `rx watch` uses `notify` directly, no cargo-watch dependency
 - **Coverage reports** — `rx coverage` with `--lcov` for CI and `--open` for local dev
 - **Affected-only testing** — `rx test --affected` only tests packages changed since a base ref
+- **Private registries** — configure and authenticate with private crate registries
+- **Lockfile policy** — enforce lockfile health and consistency for CI
 - **Plugin system** — drop executables in `~/.rx/plugins/` and run them with `rx plugin run`
 - **Build stats** — `rx stats show` tracks build time trends across sessions
+- **Telemetry** — opt-in anonymous usage analytics, stored locally
 - **Context-aware completions** — workspace members, installed targets, toolchains, and scripts
 - **Colored output** — clear, color-coded status messages with timing and progress indicators
-- **Actionable errors** — every failure includes hints on how to fix it
-- **Lazy config loading** — commands that don't need config skip loading it for faster startup
+- **Actionable errors** — every failure includes hints on how to fix it (25+ error codes)
 - **Self-updating** — `rx self-update` updates rx to the latest version
 
 ## Install
@@ -37,13 +49,25 @@ The Rust toolchain is powerful but fragmented. You need `rustup`, `cargo`, `clip
 curl -fsSL https://raw.githubusercontent.com/iPeluwa/rx/master/install.sh | sh
 ```
 
-This downloads a prebuilt binary for your platform, or falls back to `cargo install` from source.
+This downloads a prebuilt binary for your platform (Linux, macOS, Windows/MSYS), or falls back to `cargo install` from source.
 
 ### From source
 
 ```sh
 cargo install --path .
 ```
+
+### GitHub Action
+
+```yaml
+- uses: iPeluwa/rx@v1
+  with:
+    command: ci
+```
+
+### VS Code Extension
+
+Install from `editors/vscode/` — provides 15 commands, task provider, auto-check on save, and problem matchers.
 
 ### Shell completions
 
@@ -87,10 +111,13 @@ rx run
 | `rx check` | Type-check without building (fast feedback) |
 | `rx test` | Run tests (nextest if available) |
 | `rx test --affected` | Only test packages changed since base ref |
+| `rx test-smart` | Smart test ordering with failure history and sharding |
 | `rx fmt` | Format code |
 | `rx lint` | Lint with clippy |
 | `rx fix` | Auto-fix everything (compiler + clippy + fmt) |
 | `rx ci` | Run full CI pipeline locally |
+| `rx compat` | Check MSRV compatibility of code and dependencies |
+| `rx sandbox` | Sandboxed build to detect undeclared dependencies |
 | `rx bench` | Run benchmarks |
 | `rx expand` | Expand macros (requires cargo-expand) |
 | `rx publish` | Publish crate(s) to crates.io |
@@ -107,17 +134,25 @@ rx run
 | `rx upgrade` | Update toolchains and dependencies |
 | `rx self-update` | Update rx to the latest version |
 | `rx completions <shell>` | Generate shell completions |
+| `rx manpage` | Generate man page |
+| `rx explain <code>` | Explain a Rust error code with practical fixes |
 | `rx script <name>` | Run a script defined in rx.toml |
-| `rx pkg add/remove/upgrade/list` | Manage dependencies |
+| `rx sbom` | Generate Software Bill of Materials (SPDX/CycloneDX) |
+| `rx pkg add/remove/upgrade/list/why/dedupe/compat` | Manage dependencies |
 | `rx toolchain install/use/list/update` | Manage Rust toolchains |
 | `rx cache status/gc/purge` | Manage the global artifact cache |
 | `rx ws list/graph/run/script/exec` | Workspace orchestration |
 | `rx watch` | Watch for changes and rebuild (native, no cargo-watch) |
 | `rx clean` | Clean build artifacts |
-| `rx clean --all` | Clean all workspace member target directories |
 | `rx env show/shell` | Manage environment variables from rx.toml |
 | `rx plugin list/run` | Manage and run plugins |
 | `rx stats show/clear` | View or clear build time statistics |
+| `rx daemon start/stop/status/ping` | Manage the background daemon |
+| `rx registry login/list/add` | Manage private crate registries |
+| `rx lockfile check/enforce` | Check lockfile health and enforce policies |
+| `rx telemetry on/off/status` | Manage anonymous usage telemetry |
+| `rx worker warm/status/stop` | Manage persistent background workers |
+| `rx test-advanced snapshot/fuzz/mutate` | Advanced testing strategies |
 
 ### Global flags
 
@@ -143,25 +178,27 @@ Use `rx init --migrate` to auto-detect your project's existing tools (linkers, n
 
 ```toml
 [build]
-linker = "auto"       # "auto", "mold", "lld", or "system"
-rustflags = []        # extra RUSTFLAGS
-cache = true          # enable global artifact cache
-jobs = 0              # parallel jobs (0 = auto)
+linker = "auto"            # "auto", "mold", "lld", or "system"
+rustflags = []             # extra RUSTFLAGS
+cache = true               # enable global artifact cache
+jobs = 0                   # parallel jobs (0 = auto)
+incremental_link = true    # enable incremental linking optimizations
+remote_cache = ""          # remote cache URL: "s3://bucket/prefix", "gs://bucket/prefix", or "/path"
 
 [test]
-runner = "auto"       # "auto", "nextest", or "cargo"
+runner = "auto"            # "auto", "nextest", or "cargo"
 extra_args = []
 
 [lint]
-severity = "deny"     # "deny", "warn", or "allow"
-extra_lints = []      # e.g. ["clippy::pedantic"]
+severity = "deny"          # "deny", "warn", or "allow"
+extra_lints = []           # e.g. ["clippy::pedantic"]
 
 [fmt]
 extra_args = []
 
 [watch]
-cmd = "build"         # default command on file changes
-ignore = []           # file patterns to ignore
+cmd = "build"              # default command on file changes
+ignore = []                # file patterns to ignore (e.g. ["*.log", "tmp/**"])
 
 [scripts]
 ci = "cargo fmt --check && cargo clippy -- -D warnings && cargo test"
@@ -187,6 +224,79 @@ Use with `rx --profile ci build`.
 
 Config is resolved by merging `~/.rx/config.toml` (global) with the project's `rx.toml`. Project values override global.
 
+## Smart test orchestration
+
+```sh
+rx test-smart                      # run tests, failed-first ordering
+rx test-smart --shards 4           # distribute across 4 parallel shards
+rx test-smart --release            # release mode
+```
+
+Tests are ordered by failure history (previously-failing tests run first, fastest tests first). History is persisted at `~/.rx/test-history.json` and failure counts decay on success.
+
+## MSRV compatibility
+
+```sh
+rx compat                          # check code + deps against rust-version
+rx pkg compat                      # same, via pkg subcommand
+```
+
+Reads `rust-version` from Cargo.toml, installs the MSRV toolchain if needed, runs `cargo check --all-targets` with it, and verifies dependency MSRV compatibility via cargo metadata.
+
+## Build sandbox
+
+```sh
+rx sandbox                         # sandboxed debug build
+rx sandbox --release               # sandboxed release build
+```
+
+Runs `cargo build` with `env_clear()` and only essential environment variables (HOME, CARGO_HOME, RUSTUP_HOME, minimal PATH). Detects undeclared dependencies on globally-installed tools or env vars.
+
+## Background daemon
+
+```sh
+rx daemon start                    # start in foreground
+rx daemon stop                     # stop running daemon
+rx daemon status                   # check if daemon is running
+rx daemon ping                     # verify daemon responds
+```
+
+The daemon (`rxd`) holds workspace state in memory (config, dependency graph, fingerprint cache) and communicates via Unix socket at `~/.rx/rxd.sock`. Eliminates cold-start overhead for repeated commands.
+
+## Private registries
+
+```sh
+rx registry list                   # show configured registries
+rx registry add my-reg https://index.example.com
+rx registry login my-reg           # interactive auth
+rx registry login my-reg tok123    # token auth
+```
+
+## Lockfile policy
+
+```sh
+rx lockfile check                  # check existence, freshness, git status, format
+rx lockfile enforce                # CI: fail if Cargo.lock is out of sync
+```
+
+## Persistent workers
+
+```sh
+rx worker warm                     # pre-start check, fmt, lint workers
+rx worker status                   # show active worker processes
+rx worker stop                     # kill all workers
+```
+
+## Telemetry
+
+```sh
+rx telemetry on                    # opt in to anonymous local telemetry
+rx telemetry off                   # opt out
+rx telemetry status                # show collected data
+```
+
+Telemetry is **off by default**. Data is stored locally at `~/.rx/telemetry.json` and never sent automatically.
+
 ## Project templates
 
 Create new projects from opinionated templates:
@@ -203,9 +313,9 @@ Each template creates a complete project with `Cargo.toml`, source files, `.giti
 ## Release automation
 
 ```sh
-rx release patch                 # bump 0.1.0 → 0.1.1, commit, tag, push
-rx release minor                 # bump 0.1.0 → 0.2.0
-rx release major                 # bump 0.1.0 → 1.0.0
+rx release patch                 # bump 0.1.0 -> 0.1.1, commit, tag, push
+rx release minor                 # bump 0.1.0 -> 0.2.0
+rx release major                 # bump 0.1.0 -> 1.0.0
 rx release 2.0.0                 # set explicit version
 rx release patch --dry-run       # preview without changes
 rx release patch --no-push       # commit and tag, but don't push
@@ -228,138 +338,21 @@ rx test --affected --base main   # test packages changed since main branch
 
 Maps changed files from `git diff` to workspace members and only runs tests for affected packages.
 
-## Scripts
-
-Define custom scripts in `rx.toml`:
-
-```toml
-[scripts]
-ci = "cargo fmt --check && cargo clippy -- -D warnings && cargo test"
-bench = "cargo bench"
-deploy = "cargo build --release && scp target/release/myapp server:/opt/"
-```
-
-```sh
-rx script ci          # run the "ci" script
-rx script             # list all available scripts
-rx ws script ci       # run "ci" across all workspace members
-```
-
-## Environment management
-
-```sh
-rx env show           # display resolved env vars from rx.toml
-rx env shell          # spawn a subshell with env vars loaded
-```
-
-## Plugin system
-
-Drop any executable named `rx-<name>` into `~/.rx/plugins/` (or anywhere on PATH):
-
-```sh
-rx plugin list        # list available plugins
-rx plugin run myplugin -- --flag    # run a plugin with args
-```
-
-## Build stats
-
-rx tracks build time statistics across sessions:
-
-```sh
-rx stats show         # per-command avg/min/max + recent history
-rx stats clear        # clear all recorded stats
-```
-
-## Workflow commands
-
-### rx check — fast type-checking
-
-```sh
-rx check                    # type-check the whole project
-rx check --package mylib    # type-check a single package
-```
-
-### rx fix — auto-fix everything
-
-```sh
-rx fix
-```
-
-Applies fixes in three passes:
-1. **Compiler suggestions** — `cargo fix` for edition migrations, unused imports, etc.
-2. **Clippy fixes** — `cargo clippy --fix` with your configured lint severity
-3. **Formatting** — `cargo fmt` to clean up any remaining style issues
-
-### rx ci — local CI pipeline
-
-```sh
-rx ci
-```
-
-Runs the full CI pipeline locally before pushing. If a `ci` script is defined in `rx.toml`, that's used. Otherwise the default pipeline runs: `fmt --check` → `clippy` → `test` → `build`.
-
-### rx size — binary size analysis
-
-```sh
-rx size                # debug build size
-rx size --release      # release build size
-```
-
-### rx bloat — binary bloat analysis
-
-```sh
-rx bloat               # function-level bloat breakdown
-rx bloat --release     # release build
-rx bloat --crates      # group by crate instead of function
-```
-
-### rx deps — dependency health dashboard
-
-```sh
-rx deps
-```
-
-Runs dependency tree, outdated check, and security audit in one command.
-
-### rx doc — documentation builder
-
-```sh
-rx doc                 # build docs
-rx doc --open          # build and open in browser
-rx doc --no-deps       # skip dependency docs
-rx doc --watch         # rebuild on changes (uses cargo-watch)
-```
-
-### rx tree — dependency tree
-
-```sh
-rx tree                        # full dependency tree
-rx tree --duplicates           # show only duplicate dependencies
-rx tree --depth 2              # limit tree depth
-```
-
-### rx watch — native file watcher
-
-```sh
-rx watch                       # watch and run default command (build)
-rx watch --cmd "test"          # watch and run tests
-```
-
-Uses the `notify` crate directly — no need to install cargo-watch. Watches `src/`, `Cargo.toml`, `Cargo.lock`, `benches/`, `examples/`, `tests/`, and `build.rs`. Ignores `target/`, `.git/`, and patterns from `rx.toml`.
-
 ## Cache
 
 rx maintains a global content-addressed artifact cache at `~/.rx/cache`. The cache is designed for correctness even under concurrent use:
 
 1. An **mtime fast-path** checks if any source file has changed since the last build — if nothing changed, the cached fingerprint is reused instantly without reading file contents
 2. On mtime mismatch, a full **xxHash (xxh3-128)** fingerprint is computed from `Cargo.toml`, `Cargo.lock`, all source files, the build profile, and RUSTFLAGS
-3. If a cached build matches the fingerprint, artifacts are hardlinked back into `target/` — skipping `cargo build` entirely
+3. If a cached build matches the fingerprint, artifacts are **reflinked** (CoW on APFS/btrfs) or hardlinked back into `target/` — skipping `cargo build` entirely
 4. On cache miss, the build runs normally and results are stored for future use
+5. **Remote cache** can push/pull artifacts to S3, GCS, or a shared local path for team builds
 
 **Integrity guarantees:**
-- **Atomic writes** — cache index and mtime snapshots are written to a temp file then atomically renamed, so interrupted writes can't corrupt state
+- **Atomic writes** — cache index and mtime snapshots are written to a temp file then atomically renamed
 - **File locking** — a lock file prevents concurrent `rx` processes from racing on the cache index
-- **Staging directory** — new artifacts are written to a staging dir then renamed into place, so partial builds never pollute the cache
+- **Staging directory** — new artifacts are written to a staging dir then renamed into place
+- **Parallel operations** — cache store/restore uses rayon for parallel file copies
 
 ```sh
 rx cache status    # show cache size and artifact count
@@ -382,150 +375,108 @@ rx ws script ci             # run "ci" script from each member's rx.toml
 rx ws exec "wc -l src/*.rs" # run a shell command in each member directory
 ```
 
-Members are grouped into parallel "waves" based on the dependency graph (Kahn's algorithm for topological sort). Independent packages build concurrently; dependent packages wait for their dependencies to complete.
-
-## Publishing
-
-`rx publish` handles workspace-aware publishing to crates.io:
-
-```sh
-rx publish                      # publish all workspace members in dependency order
-rx publish --package mylib      # publish a single crate
-rx publish --dry-run            # validate without publishing
-```
-
-## Doctor
-
-`rx doctor` checks that your development environment is properly set up and refreshes the persistent env detection cache:
-
-```
-$ rx doctor
-rx doctor
-──────────────────────────────────────────────────
-  OK       rustc          (rustc 1.82.0)
-  OK       cargo          (cargo 1.82.0)
-  OK       rustup         (rustup 1.27.1)
-  OK       rustfmt        (rustfmt 1.7.1)
-  OK       clippy         (clippy 0.1.82)
-  MISSING  mold           -> https://github.com/rui314/mold (optional)
-  OK       lld            (LLD 18.1.8)
-  OK       nextest        (cargo-nextest 0.9.72)
-──────────────────────────────────────────────────
-  Env cache: refreshed
-
-All required tools present.
-```
-
-## Error handling
-
-rx is designed to give you actionable feedback when things go wrong:
-
-```
-$ rx build
-[rx] could not find Cargo.toml in any parent directory
-hint: run this command from inside a Rust project, or use `rx new <name>` to create one
-
-$ rx lint
-[rx] lint failed — run `rx lint --fix` to auto-fix what's possible
-
-$ rx publish
-[rx] publish failed for mylib
-hint: check that you're logged in with `cargo login` and the package version is bumped
-```
-
-Every error includes context about what went wrong and a suggestion for how to fix it. Use `--verbose` for additional diagnostic detail.
+Members are grouped into parallel "waves" based on the dependency graph (Kahn's algorithm for topological sort). Independent packages build concurrently; dependent packages wait for their dependencies to complete. Semantic fingerprinting skips rebuilding members whose public API hasn't changed.
 
 ## Performance
 
 rx is built for speed:
 
 - **xxHash (xxh3-128)** for fingerprinting — ~10x faster than SHA-256
+- **Semantic fingerprinting** — only rebuilds when public API signatures change (via `syn` AST parsing)
 - **Mtime fast-path** — skips content hashing entirely when no files have changed
+- **Reflink (CoW) copy** — instant cache restore on APFS/btrfs, fallback to hardlink then copy
+- **Parallel cache operations** — rayon-based parallel store/restore
+- **Pipelined builds** — overlap downstream type-checking with upstream codegen
 - **Persistent env cache** — linker detection results cached to `~/.rx/env.lock`, refreshed by `rx doctor`
+- **Incremental linking** — split-debuginfo and `--as-needed` for faster link times
 - **Native file watcher** — uses `notify` crate directly instead of spawning cargo-watch
+- **PGO release builds** — Profile-Guided Optimization in the release CI pipeline
 - **Optimized release binary** — thin LTO, single codegen unit, stripped symbols, panic=abort
 - **Lazy config loading** — commands that don't need config skip loading it
-- **Hardlink cache restore** — artifacts hardlinked from cache instead of copied when possible
-
-## Releasing
-
-rx includes a GitHub Actions workflow that automatically builds and publishes binaries when you push a version tag:
-
-```sh
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-This builds for four targets and attaches the binaries to a GitHub Release:
-- `x86_64-unknown-linux-gnu`
-- `aarch64-unknown-linux-gnu`
-- `x86_64-apple-darwin`
-- `aarch64-apple-darwin`
 
 ## Architecture
 
 ```
 rx (single binary, MSRV 1.85.0)
-├── cli/            CLI definition (clap derive) with lazy config loading + profiles
-├── config/         rx.toml parsing, global/project merge, profiles, validation
-├── build/          cargo build with fast linker, cache, cross-compilation, env cache
-├── cache/          content-addressed store with xxHash, atomic writes, file locking, mtime fast-path
-├── cargo_output/   cargo JSON output parser for custom build rendering
-├── workspace/      dependency graph, topo sort (Kahn's), parallel wave execution
-├── output/         colored output, progress spinners, timing, verbosity control
-├── watch/          native file watcher (notify crate), smart filtering
-├── completions/    shell completions + context-aware dynamic completions
-├── templates/      project templates (axum, cli, wasm, lib)
-├── release/        version bumping, commit, tag, push automation
-├── coverage/       code coverage (cargo-llvm-cov / tarpaulin, HTML + LCOV)
-├── affected/       git-diff-based affected package detection
-├── script/         rx.toml script runner
-├── stats/          build time tracking and statistics
-├── env/            environment variable management
-├── plugin/         plugin discovery and execution
-├── migrate/        auto-detection and config generation from existing projects
-├── deps/           dependency health dashboard
-├── bloat/          binary bloat analysis
-├── doc/            documentation builder with --watch
-├── check/          fast type-checking (cargo check)
-├── fix/            auto-fix pipeline (cargo fix + clippy --fix + fmt)
-├── ci/             local CI pipeline runner
-├── size/           binary size analysis with cargo-bloat support
-├── tree/           dependency tree visualization
-├── outdated/       outdated dependency checker
-├── audit/          security vulnerability auditing
-├── selfupdate/     self-update mechanism
-├── pkg/            dependency management (add/remove/upgrade)
-├── toolchain/      rustup wrapper for toolchain management
-├── test/           test runner with timing (auto-selects nextest)
-├── fmt/            rustfmt wrapper with timing
-├── lint/           clippy wrapper with configurable severity and timing
-├── bench/          benchmark runner with timing
-├── expand/         macro expansion (cargo-expand)
-├── publish/        workspace-aware crates.io publishing with progress
-├── doctor/         environment health checks + env cache refresh
-├── upgrade/        toolchain and dependency updater with timing
-└── install.sh      self-installer script
+├── cli/               CLI definition (clap derive) with lazy config loading + profiles
+├── config/            rx.toml parsing, global/project merge, profiles, validation
+├── build/             cargo build with fast linker, cache, cross-compilation, incremental linking
+├── cache/             content-addressed store with xxHash, atomic writes, parallel reflink/hardlink
+├── remote_cache/      S3/GCS/local shared cache for teams
+├── semantic_hash/     syn-based public API fingerprinting
+├── pipeline/          pipelined workspace builds (check + build overlap)
+├── cargo_output/      cargo JSON output parser with error hints
+├── workspace/         dependency graph, topo sort (Kahn's), parallel wave execution
+├── daemon/            background daemon with Unix socket IPC
+├── worker/            persistent warm check/fmt/lint processes
+├── output/            colored output, progress spinners, timing, verbosity control
+├── watch/             native file watcher (notify crate), smart filtering, JSON integration
+├── completions/       shell completions + context-aware dynamic completions
+├── templates/         project templates (axum, cli, wasm, lib)
+├── release/           version bumping, commit, tag, push automation
+├── coverage/          code coverage (cargo-llvm-cov / tarpaulin, HTML + LCOV)
+├── affected/          git-diff-based affected package detection
+├── test_orchestrator/ smart test ordering, sharding, flaky detection
+├── compat/            MSRV compatibility checking
+├── sandbox/           isolated builds (env-stripped) for dependency detection
+├── registry/          private crate registry configuration
+├── lockfile/          lockfile health checking and CI enforcement
+├── telemetry/         opt-in anonymous usage analytics (local only)
+├── script/            rx.toml script runner
+├── stats/             build time tracking and statistics
+├── env/               environment variable management
+├── plugin/            plugin discovery and execution
+├── migrate/           auto-detection and config generation from existing projects
+├── deps/              dependency health dashboard
+├── bloat/             binary bloat analysis
+├── hints/             25+ error code explanations with practical fixes
+├── doc/               documentation builder with --watch
+├── sbom/              SPDX and CycloneDX bill of materials generation
+├── test_advanced/     snapshot, fuzz, and mutation testing
+└── install.sh         self-installer script (Linux, macOS, Windows/MSYS)
 ```
+
+## GitHub Action
+
+Use rx in your CI with the official GitHub Action:
+
+```yaml
+- uses: iPeluwa/rx@v1
+  with:
+    version: latest        # rx version to install
+    command: ci            # rx command to run
+    cache: true            # cache Cargo artifacts
+    rust-toolchain: stable # Rust toolchain to install
+```
+
+## VS Code Extension
+
+The `editors/vscode/` directory contains a VS Code extension with:
+- 15 commands (build, test, lint, fmt, fix, ci, etc.)
+- Task provider for rx commands
+- Auto-check on save
+- Status bar with build status
+- Problem matchers for Rust errors
 
 ## Testing
 
-rx has 92 tests across 5 test suites:
+rx has 130+ tests across 5 test suites plus inline unit tests:
 
 ```sh
 cargo test
 ```
 
-| Suite | Tests | Coverage |
-|---|---|---|
-| `cache_tests` | 8 | Fingerprinting, cache hit/miss, store/restore |
-| `cli_tests` | 55 | All CLI commands and flags parse correctly |
-| `config_tests` | 8 | Config loading, merging, profiles, serialization |
-| `integration_tests` | 10 | End-to-end: init, build, test, fmt, doctor, flags |
-| `workspace_tests` | 11 | Topo sort, parallel waves, cycle detection |
+| Suite | Coverage |
+|---|---|
+| `cache_tests` | Fingerprinting, cache hit/miss, store/restore |
+| `cli_tests` | All 70+ CLI commands and flags parse correctly |
+| `config_tests` | Config loading, merging, profiles, serialization |
+| `integration_tests` | End-to-end: init, build, test, fmt, doctor, flags |
+| `workspace_tests` | Topo sort, parallel waves, cycle detection |
+| Unit tests | Semantic hashing, MSRV comparison, telemetry, workers, sandbox, remote cache |
 
 CI runs on every push: check, test (ubuntu + macos), clippy, fmt, and MSRV verification.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

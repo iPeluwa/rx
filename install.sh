@@ -20,6 +20,7 @@ get_os() {
     case "$os" in
         Linux) echo "unknown-linux-gnu" ;;
         Darwin) echo "apple-darwin" ;;
+        MINGW*|MSYS*|CYGWIN*) echo "pc-windows-msvc" ;;
         *) echo "unsupported OS: $os" >&2; exit 1 ;;
     esac
 }

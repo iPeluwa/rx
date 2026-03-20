@@ -197,3 +197,80 @@ pub fn resolve_backend(config: &RxConfig) -> Option<CacheBackend> {
     }
     CacheBackend::from_url(url).ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_url_s3_with_prefix() {
+        let backend = CacheBackend::from_url("s3://my-bucket/my-prefix").unwrap();
+        match backend {
+            CacheBackend::S3 { bucket, prefix } => {
+                assert_eq!(bucket, "my-bucket");
+                assert_eq!(prefix, "my-prefix");
+            }
+            _ => panic!("expected S3 variant"),
+        }
+    }
+
+    #[test]
+    fn from_url_gcs_with_prefix() {
+        let backend = CacheBackend::from_url("gs://my-bucket/my-prefix").unwrap();
+        match backend {
+            CacheBackend::Gcs { bucket, prefix } => {
+                assert_eq!(bucket, "my-bucket");
+                assert_eq!(prefix, "my-prefix");
+            }
+            _ => panic!("expected Gcs variant"),
+        }
+    }
+
+    #[test]
+    fn from_url_path() {
+        let backend = CacheBackend::from_url("/tmp/cache").unwrap();
+        match backend {
+            CacheBackend::Path { root } => {
+                assert_eq!(root, PathBuf::from("/tmp/cache"));
+            }
+            _ => panic!("expected Path variant"),
+        }
+    }
+
+    #[test]
+    fn from_url_s3_no_prefix_uses_default() {
+        let backend = CacheBackend::from_url("s3://bucket").unwrap();
+        match backend {
+            CacheBackend::S3 { bucket, prefix } => {
+                assert_eq!(bucket, "bucket");
+                assert_eq!(prefix, "rx-cache");
+            }
+            _ => panic!("expected S3 variant"),
+        }
+    }
+
+    #[test]
+    fn remote_key_s3_format() {
+        let backend = CacheBackend::S3 {
+            bucket: "b".to_string(),
+            prefix: "pfx".to_string(),
+        };
+        let key = backend.remote_key("abcdef1234567890");
+        assert_eq!(key, "pfx/ab/abcdef1234567890.tar.gz");
+    }
+
+    #[test]
+    fn remote_key_path_format() {
+        let backend = CacheBackend::Path {
+            root: PathBuf::from("/cache"),
+        };
+        let key = backend.remote_key("abcdef1234567890");
+        assert_eq!(key, "ab/abcdef1234567890.tar.gz");
+    }
+
+    #[test]
+    fn resolve_backend_empty_config_returns_none() {
+        let config = RxConfig::default();
+        assert!(resolve_backend(&config).is_none());
+    }
+}

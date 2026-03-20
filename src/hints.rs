@@ -181,6 +181,51 @@ const HINT_DB: &[HintEntry] = &[
                  2. Clone the value before the closure: let val = val.clone();\n\
                  3. Use Arc<T> for thread-safe shared ownership",
     },
+    HintEntry {
+        code: "E0412",
+        short: "Cannot find type name in this scope.",
+        detail: "Common fixes:\n\
+                 1. Add a use statement to import the type\n\
+                 2. Check for typos in the type name\n\
+                 3. Ensure the crate is in [dependencies] in Cargo.toml\n\
+                 4. Check that the type is pub in its defining module",
+    },
+    HintEntry {
+        code: "E0463",
+        short: "Can't find crate.",
+        detail: "Common fixes:\n\
+                 1. Add the crate to [dependencies] in Cargo.toml\n\
+                 2. Run `cargo update` to refresh the index\n\
+                 3. Check that the crate name is spelled correctly\n\
+                 4. Ensure `extern crate` is not needed (edition 2018+)",
+    },
+    HintEntry {
+        code: "E0609",
+        short: "No field on this type.",
+        detail: "Common fixes:\n\
+                 1. Check the field name for typos\n\
+                 2. Ensure the field is pub if accessing from another module\n\
+                 3. Use a getter method if the field is private\n\
+                 4. Check if you're using the right variant for enums",
+    },
+    HintEntry {
+        code: "E0614",
+        short: "Cannot dereference this type.",
+        detail: "Common fixes:\n\
+                 1. Implement Deref for your type\n\
+                 2. Use .as_ref() or .borrow() instead of *\n\
+                 3. Check if you need & instead of *\n\
+                 4. Use pattern matching to destructure",
+    },
+    HintEntry {
+        code: "E0728",
+        short: "`await` is only allowed inside `async` functions and blocks.",
+        detail: "Common fixes:\n\
+                 1. Mark the function as async: async fn foo()\n\
+                 2. Wrap the call in an async block: async { ... }.await\n\
+                 3. Use block_on() from your async runtime at the top level\n\
+                 4. Use #[tokio::main] or #[async_std::main] for main()",
+    },
 ];
 
 /// Look up a hint for a given error code.

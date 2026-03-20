@@ -18,7 +18,6 @@ pub fn generate_completions(shell: Shell) -> Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
 pub fn generate_manpage() -> Result<()> {
     let cmd = crate::cli::Cli::command();
     let man = clap_mangen::Man::new(cmd);

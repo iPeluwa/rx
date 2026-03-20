@@ -1,0 +1,9 @@
+[book]
+title = "rx — The Rust Toolchain Manager"
+authors = ["iPeluwa"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "rust"
+git-repository-url = "https://github.com/iPeluwa/rx"

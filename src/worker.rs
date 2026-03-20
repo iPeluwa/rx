@@ -119,11 +119,25 @@ pub fn start_background_lint() -> Result<u32> {
 
 /// Check if a worker is still running.
 fn is_pid_alive(pid: u32) -> bool {
-    Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    #[cfg(unix)]
+    {
+        Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+    #[cfg(windows)]
+    {
+        Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .output()
+            .map(|o| {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                stdout.contains(&pid.to_string())
+            })
+            .unwrap_or(false)
+    }
 }
 
 /// Show status of all workers.
@@ -158,7 +172,17 @@ pub fn stop_all() -> Result<()> {
 
     for (name, pid) in &pids.pids {
         if is_pid_alive(*pid) {
-            Command::new("kill").arg(pid.to_string()).status().ok();
+            #[cfg(unix)]
+            {
+                Command::new("kill").arg(pid.to_string()).status().ok();
+            }
+            #[cfg(windows)]
+            {
+                Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/F"])
+                    .status()
+                    .ok();
+            }
             crate::output::step(name, &format!("stopped (pid {pid})"));
         }
     }
@@ -183,4 +207,29 @@ pub fn warm() -> Result<()> {
     ));
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_worker_pids_has_empty_pids() {
+        let pids = WorkerPids::default();
+        assert!(pids.pids.is_empty());
+    }
+
+    #[test]
+    fn worker_pids_roundtrip_serialize() {
+        let mut pids = WorkerPids::default();
+        pids.pids.insert("check".to_string(), 12345);
+        pids.pids.insert("fmt".to_string(), 67890);
+
+        let json = serde_json::to_string(&pids).expect("serialize failed");
+        let restored: WorkerPids = serde_json::from_str(&json).expect("deserialize failed");
+
+        assert_eq!(restored.pids.len(), 2);
+        assert_eq!(restored.pids.get("check"), Some(&12345));
+        assert_eq!(restored.pids.get("fmt"), Some(&67890));
+    }
 }

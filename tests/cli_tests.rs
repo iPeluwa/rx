@@ -727,3 +727,197 @@ fn parse_daemon_ping() {
         rx::cli::Command::Daemon(rx::cli::DaemonCommand::Ping)
     ));
 }
+
+#[test]
+fn parse_compat() {
+    let cli = parse(&["compat"]);
+    assert!(matches!(cli.command, rx::cli::Command::Compat));
+}
+
+#[test]
+fn parse_test_smart() {
+    let cli = parse(&["test-smart"]);
+    match cli.command {
+        rx::cli::Command::TestSmart {
+            filter,
+            package,
+            shards,
+            release,
+        } => {
+            assert!(filter.is_none());
+            assert!(package.is_none());
+            assert!(shards.is_none());
+            assert!(!release);
+        }
+        _ => panic!("expected TestSmart"),
+    }
+}
+
+#[test]
+fn parse_test_smart_with_shards() {
+    let cli = parse(&["test-smart", "--shards", "4"]);
+    match cli.command {
+        rx::cli::Command::TestSmart { shards, .. } => {
+            assert_eq!(shards, Some(4));
+        }
+        _ => panic!("expected TestSmart"),
+    }
+}
+
+#[test]
+fn parse_test_smart_with_filter() {
+    let cli = parse(&["test-smart", "my_test", "--release"]);
+    match cli.command {
+        rx::cli::Command::TestSmart {
+            filter, release, ..
+        } => {
+            assert_eq!(filter.unwrap(), "my_test");
+            assert!(release);
+        }
+        _ => panic!("expected TestSmart"),
+    }
+}
+
+#[test]
+fn parse_sandbox() {
+    let cli = parse(&["sandbox"]);
+    match cli.command {
+        rx::cli::Command::Sandbox { release } => assert!(!release),
+        _ => panic!("expected Sandbox"),
+    }
+}
+
+#[test]
+fn parse_sandbox_release() {
+    let cli = parse(&["sandbox", "--release"]);
+    match cli.command {
+        rx::cli::Command::Sandbox { release } => assert!(release),
+        _ => panic!("expected Sandbox"),
+    }
+}
+
+#[test]
+fn parse_registry_login() {
+    let cli = parse(&["registry", "login", "my-reg"]);
+    match cli.command {
+        rx::cli::Command::Registry(rx::cli::RegistryCommand::Login { registry, token }) => {
+            assert_eq!(registry, "my-reg");
+            assert!(token.is_none());
+        }
+        _ => panic!("expected Registry Login"),
+    }
+}
+
+#[test]
+fn parse_registry_login_with_token() {
+    let cli = parse(&["registry", "login", "my-reg", "tok123"]);
+    match cli.command {
+        rx::cli::Command::Registry(rx::cli::RegistryCommand::Login { registry, token }) => {
+            assert_eq!(registry, "my-reg");
+            assert_eq!(token.unwrap(), "tok123");
+        }
+        _ => panic!("expected Registry Login"),
+    }
+}
+
+#[test]
+fn parse_registry_list() {
+    let cli = parse(&["registry", "list"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Registry(rx::cli::RegistryCommand::List)
+    ));
+}
+
+#[test]
+fn parse_registry_add() {
+    let cli = parse(&["registry", "add", "my-reg", "https://index.example.com"]);
+    match cli.command {
+        rx::cli::Command::Registry(rx::cli::RegistryCommand::Add { name, index }) => {
+            assert_eq!(name, "my-reg");
+            assert_eq!(index, "https://index.example.com");
+        }
+        _ => panic!("expected Registry Add"),
+    }
+}
+
+#[test]
+fn parse_lockfile_check() {
+    let cli = parse(&["lockfile", "check"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Lockfile(rx::cli::LockfileCommand::Check)
+    ));
+}
+
+#[test]
+fn parse_lockfile_enforce() {
+    let cli = parse(&["lockfile", "enforce"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Lockfile(rx::cli::LockfileCommand::Enforce)
+    ));
+}
+
+#[test]
+fn parse_telemetry_on() {
+    let cli = parse(&["telemetry", "on"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Telemetry(rx::cli::TelemetryCommand::On)
+    ));
+}
+
+#[test]
+fn parse_telemetry_off() {
+    let cli = parse(&["telemetry", "off"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Telemetry(rx::cli::TelemetryCommand::Off)
+    ));
+}
+
+#[test]
+fn parse_telemetry_status() {
+    let cli = parse(&["telemetry", "status"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Telemetry(rx::cli::TelemetryCommand::Status)
+    ));
+}
+
+#[test]
+fn parse_worker_warm() {
+    let cli = parse(&["worker", "warm"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Worker(rx::cli::WorkerCommand::Warm)
+    ));
+}
+
+#[test]
+fn parse_worker_status() {
+    let cli = parse(&["worker", "status"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Worker(rx::cli::WorkerCommand::Status)
+    ));
+}
+
+#[test]
+fn parse_worker_stop() {
+    let cli = parse(&["worker", "stop"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Worker(rx::cli::WorkerCommand::Stop)
+    ));
+}
+
+#[test]
+fn parse_pkg_compat() {
+    let cli = parse(&["pkg", "compat"]);
+    assert!(matches!(
+        cli.command,
+        rx::cli::Command::Pkg(rx::cli::PkgCommand::Compat)
+    ));
+}
