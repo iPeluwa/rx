@@ -37,15 +37,23 @@ fn check_cargo_plugin(plugin: &str) -> (bool, String) {
     }
 }
 
-/// Calculate directory size in bytes.
+/// Calculate directory size in bytes (with time budget to avoid hangs).
 fn dir_size(path: &Path) -> u64 {
-    WalkDir::new(path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter_map(|e| e.metadata().ok())
-        .filter(|m| m.is_file())
-        .map(|m| m.len())
-        .sum()
+    let start = std::time::Instant::now();
+    let max_duration = std::time::Duration::from_secs(5);
+    let mut total: u64 = 0;
+
+    for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
+        if start.elapsed() >= max_duration {
+            break;
+        }
+        if let Ok(metadata) = entry.metadata() {
+            if metadata.is_file() {
+                total = total.saturating_add(metadata.len());
+            }
+        }
+    }
+    total
 }
 
 fn format_size(bytes: u64) -> String {
@@ -53,8 +61,10 @@ fn format_size(bytes: u64) -> String {
         format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)
     } else if bytes >= 1_048_576 {
         format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
     } else {
-        format!("{} KB", bytes / 1024)
+        format!("{} B", bytes)
     }
 }
 
@@ -76,6 +86,19 @@ fn count_workspace_members(cargo_toml: &Path) -> Option<usize> {
     let workspace = table.get("workspace")?;
     let members = workspace.get("members")?.as_array()?;
     Some(members.len())
+}
+
+/// Find the project root by walking up from cwd (same logic as build module).
+fn find_project_root() -> Option<std::path::PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        if dir.join("Cargo.toml").exists() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
 }
 
 pub fn doctor() -> Result<()> {
@@ -206,26 +229,26 @@ pub fn doctor() -> Result<()> {
     }
 
     // ── Project Analysis ──
-    let cargo_toml = Path::new("Cargo.toml");
-    if cargo_toml.exists() {
+    if let Some(project_root) = find_project_root() {
+        let cargo_toml = project_root.join("Cargo.toml");
         println!("\n  {}", "Project".bold().underline());
 
         // Workspace detection
-        if let Some(member_count) = count_workspace_members(cargo_toml) {
+        if let Some(member_count) = count_workspace_members(&cargo_toml) {
             println!("  {}  Workspace with {} members", "✓".green(), member_count);
         } else {
             println!("  {}  Single crate", "✓".green());
         }
 
         // MSRV
-        if let Some(msrv) = extract_msrv(cargo_toml) {
+        if let Some(msrv) = extract_msrv(&cargo_toml) {
             println!("  {}  MSRV: {}", "✓".green(), msrv);
         }
 
         // target/ size
-        let target_dir = Path::new("target");
+        let target_dir = project_root.join("target");
         if target_dir.exists() {
-            let size = dir_size(target_dir);
+            let size = dir_size(&target_dir);
             let size_str = format_size(size);
             if size > 2_147_483_648 {
                 // > 2 GB
@@ -240,22 +263,32 @@ pub fn doctor() -> Result<()> {
         }
 
         // Cargo.lock
-        if Path::new("Cargo.lock").exists() {
-            // Check if committed
+        let cargo_lock = project_root.join("Cargo.lock");
+        if cargo_lock.exists() {
             let git_status = Command::new("git")
                 .args(["status", "--porcelain", "Cargo.lock"])
+                .current_dir(&project_root)
                 .output();
             if let Ok(output) = git_status {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if stdout.contains("??") {
-                    println!(
-                        "  {}  Cargo.lock exists but is not tracked by git",
-                        "⚠".yellow()
-                    );
-                    suggestions
-                        .push("Cargo.lock is not tracked — run `git add Cargo.lock`".to_string());
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let trimmed = stdout.trim();
+                    if trimmed.is_empty() {
+                        println!("  {}  Cargo.lock committed", "✓".green());
+                    } else if trimmed.starts_with("??") {
+                        println!(
+                            "  {}  Cargo.lock exists but is not tracked by git",
+                            "⚠".yellow()
+                        );
+                        suggestions.push(
+                            "Cargo.lock is not tracked — run `git add Cargo.lock`".to_string(),
+                        );
+                    } else {
+                        println!("  {}  Cargo.lock has uncommitted changes", "⚠".yellow());
+                    }
                 } else {
-                    println!("  {}  Cargo.lock committed", "✓".green());
+                    // Not a git repo or git unavailable
+                    println!("  {}  Cargo.lock exists", "✓".green());
                 }
             } else {
                 println!("  {}  Cargo.lock exists", "✓".green());
@@ -268,7 +301,7 @@ pub fn doctor() -> Result<()> {
         }
 
         // rx.toml
-        if Path::new("rx.toml").exists() {
+        if project_root.join("rx.toml").exists() {
             println!("  {}  rx.toml configured", "✓".green());
         } else {
             println!(
