@@ -33,6 +33,7 @@ rayon = "1.10"
 reflink-copy = "0.1"
 syn = { version = "2", features = ["full", "parsing"] }
 quote = "1"
+memmap2 = "0.9"
 
 [profile.release]
 lto = "thin"

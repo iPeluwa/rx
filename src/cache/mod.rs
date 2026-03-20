@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -313,7 +314,19 @@ pub fn compute_build_fingerprint(
             let rel = file.strip_prefix(project_root).unwrap_or(file);
             buf.extend_from_slice(rel.to_string_lossy().as_bytes());
             buf.push(0);
-            buf.extend_from_slice(&fs::read(file)?);
+            // Use mmap for large files to avoid read syscall overhead
+            if let Ok(f) = fs::File::open(file) {
+                if let Ok(metadata) = f.metadata() {
+                    if metadata.len() > 0 {
+                        // SAFETY: file is read-only and we don't hold the mapping across writes
+                        if let Ok(mmap) = unsafe { Mmap::map(&f) } {
+                            buf.extend_from_slice(&mmap);
+                        } else {
+                            buf.extend_from_slice(&fs::read(file)?);
+                        }
+                    }
+                }
+            }
             buf.push(0);
         }
     }
