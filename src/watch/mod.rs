@@ -21,9 +21,8 @@ fn should_ignore(path: &Path, ignore_patterns: &[String]) -> bool {
 
     // User-configured ignore patterns (simple glob matching)
     for pattern in ignore_patterns {
-        if pattern.starts_with("*.") {
+        if let Some(ext) = pattern.strip_prefix("*.") {
             // Extension match: "*.log" matches any .log file
-            let ext = &pattern[2..];
             if path_str.ends_with(ext) {
                 return true;
             }
@@ -137,6 +136,25 @@ fn run_cargo_cmd(cmd: &str) {
     if parts.is_empty() {
         return;
     }
+
+    // Use JSON output parser for richer feedback when verbose
+    if crate::output::is_verbose() && (cmd == "build" || cmd == "check") {
+        let env_vars: Vec<(&str, &str)> = vec![];
+        match crate::cargo_output::run_cargo_json(&parts, &env_vars) {
+            Ok(summary) => {
+                if summary.success {
+                    crate::output::success(&format!("cargo {cmd} completed"));
+                } else {
+                    crate::output::error(&format!("cargo {cmd} failed"));
+                }
+            }
+            Err(e) => {
+                crate::output::error(&format!("cargo {cmd} error: {e}"));
+            }
+        }
+        return;
+    }
+
     let status = Command::new("cargo").args(&parts).status();
     match status {
         Ok(s) if s.success() => {

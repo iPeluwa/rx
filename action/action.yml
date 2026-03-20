@@ -1,0 +1,93 @@
+name: 'rx - Rust Toolchain Manager'
+description: 'Install and run rx commands in GitHub Actions CI'
+author: 'iPeluwa'
+
+branding:
+  icon: 'zap'
+  color: 'orange'
+
+inputs:
+  version:
+    description: 'rx version to install (default: latest)'
+    required: false
+    default: 'latest'
+  command:
+    description: 'rx command to run (e.g. "ci", "build --release", "test")'
+    required: false
+    default: 'ci'
+  working-directory:
+    description: 'Working directory for rx commands'
+    required: false
+    default: '.'
+  profile:
+    description: 'rx config profile to use'
+    required: false
+    default: ''
+  cache:
+    description: 'Enable build artifact caching (true/false)'
+    required: false
+    default: 'true'
+  rust-toolchain:
+    description: 'Rust toolchain to install (default: stable)'
+    required: false
+    default: 'stable'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.rust-toolchain }}
+        components: clippy, rustfmt
+
+    - name: Cache Cargo registry and target
+      if: inputs.cache == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          ~/.rx/cache
+          target
+        key: rx-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          rx-${{ runner.os }}-
+
+    - name: Install rx
+      shell: bash
+      run: |
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          # Install from latest GitHub release
+          ARCH=$(uname -m)
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          case "${ARCH}" in
+            x86_64) TARGET="x86_64-unknown-${OS}-gnu" ;;
+            aarch64|arm64) TARGET="aarch64-unknown-${OS}-gnu" ;;
+            *) echo "Unsupported architecture: ${ARCH}"; exit 1 ;;
+          esac
+
+          # For macOS, adjust target
+          if [ "${OS}" = "darwin" ]; then
+            TARGET="${ARCH}-apple-darwin"
+          fi
+
+          RELEASE_URL="https://github.com/iPeluwa/rx/releases/latest/download/rx-${TARGET}.tar.gz"
+          echo "Installing rx from ${RELEASE_URL}"
+          curl -sSfL "${RELEASE_URL}" | tar xz -C /usr/local/bin/ 2>/dev/null || {
+            echo "Release binary not available, building from source..."
+            cargo install --git https://github.com/iPeluwa/rx.git
+          }
+        else
+          cargo install --git https://github.com/iPeluwa/rx.git --tag "v${{ inputs.version }}"
+        fi
+
+    - name: Run rx
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        PROFILE_FLAG=""
+        if [ -n "${{ inputs.profile }}" ]; then
+          PROFILE_FLAG="--profile ${{ inputs.profile }}"
+        fi
+        rx ${PROFILE_FLAG} ${{ inputs.command }}

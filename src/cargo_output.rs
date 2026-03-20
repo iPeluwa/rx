@@ -128,7 +128,7 @@ pub fn run_cargo_json(args: &[&str], env_vars: &[(&str, &str)]) -> Result<BuildS
                         }
                         _ => {
                             if let Some(ref rendered) = message.rendered {
-                                crate::output::verbose(&format!("{}", rendered.trim()));
+                                crate::output::verbose(rendered.trim());
                             }
                         }
                     }

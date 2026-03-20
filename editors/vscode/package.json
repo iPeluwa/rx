@@ -1,0 +1,97 @@
+{
+  "name": "rx-rust",
+  "displayName": "rx - Rust Toolchain Manager",
+  "description": "VS Code integration for rx, the fast unified Rust toolchain manager",
+  "version": "0.1.0",
+  "publisher": "iPeluwa",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iPeluwa/rx"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages", "Linters", "Formatters", "Testing"],
+  "activationEvents": [
+    "workspaceContains:Cargo.toml",
+    "workspaceContains:rx.toml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "rx.build", "title": "rx: Build" },
+      { "command": "rx.buildRelease", "title": "rx: Build (Release)" },
+      { "command": "rx.test", "title": "rx: Test" },
+      { "command": "rx.fmt", "title": "rx: Format" },
+      { "command": "rx.lint", "title": "rx: Lint" },
+      { "command": "rx.check", "title": "rx: Check" },
+      { "command": "rx.fix", "title": "rx: Fix" },
+      { "command": "rx.ci", "title": "rx: Run CI" },
+      { "command": "rx.clean", "title": "rx: Clean" },
+      { "command": "rx.doctor", "title": "rx: Doctor" },
+      { "command": "rx.insights", "title": "rx: Insights" },
+      { "command": "rx.deps", "title": "rx: Dependencies" },
+      { "command": "rx.coverage", "title": "rx: Coverage" },
+      { "command": "rx.watch", "title": "rx: Watch" },
+      { "command": "rx.run", "title": "rx: Run" }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "rx",
+        "required": ["command"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "The rx command to run"
+          },
+          "profile": {
+            "type": "string",
+            "description": "Config profile to use"
+          }
+        }
+      }
+    ],
+    "configuration": {
+      "title": "rx",
+      "properties": {
+        "rx.path": {
+          "type": "string",
+          "default": "rx",
+          "description": "Path to the rx binary"
+        },
+        "rx.autoCheck": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run rx check on save"
+        },
+        "rx.profile": {
+          "type": "string",
+          "default": "",
+          "description": "Default config profile to use"
+        }
+      }
+    },
+    "problemMatchers": [
+      {
+        "name": "rx",
+        "owner": "rx",
+        "fileLocation": "absolute",
+        "pattern": {
+          "regexp": "^(error|warning)\\[?([A-Z]\\d+)?\\]?: (.+)$",
+          "severity": 1,
+          "code": 2,
+          "message": 3
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}

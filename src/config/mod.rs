@@ -64,6 +64,8 @@ pub struct BuildConfig {
     pub jobs: u32,
     /// Enable incremental linking optimizations (split-debuginfo, --as-needed)
     pub incremental_link: bool,
+    /// Remote cache URL: s3://bucket/prefix, gs://bucket/prefix, or /path
+    pub remote_cache: String,
 }
 
 impl Default for BuildConfig {
@@ -74,6 +76,7 @@ impl Default for BuildConfig {
             cache: true,
             jobs: 0,
             incremental_link: true,
+            remote_cache: String::new(),
         }
     }
 }
@@ -191,6 +194,11 @@ pub fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
                 global.build.jobs
             },
             incremental_link: project.build.incremental_link && global.build.incremental_link,
+            remote_cache: if !project.build.remote_cache.is_empty() {
+                project.build.remote_cache
+            } else {
+                global.build.remote_cache
+            },
         },
         test: TestConfig {
             runner: if project.test.runner != "auto" {

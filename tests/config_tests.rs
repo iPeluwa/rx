@@ -96,6 +96,7 @@ fn merge_project_overrides_global() {
             cache: true,
             jobs: 8,
             incremental_link: true,
+            remote_cache: String::new(),
         },
         test: rx::config::TestConfig {
             runner: "nextest".into(),

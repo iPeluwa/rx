@@ -54,7 +54,7 @@ fn generate_spdx(output: Option<&str>) -> Result<()> {
     spdx.push_str(&format!(
         "DocumentNamespace: https://spdx.org/spdxdocs/{root_name}\n"
     ));
-    spdx.push_str(&format!("Creator: Tool: rx\n"));
+    spdx.push_str("Creator: Tool: rx\n");
     spdx.push_str(&format!("Created: {timestamp}\n"));
     spdx.push('\n');
 

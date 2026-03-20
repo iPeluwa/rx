@@ -5,6 +5,9 @@
 //! metadata/rmeta is ready. This overlaps type-checking of downstream with codegen
 //! of upstream, reducing wall-clock time for workspace builds.
 
+// Pipeline module is scaffolded for future use when the event-driven scheduler
+// replaces the wave-based approach.
+
 use anyhow::Result;
 use std::collections::HashMap;
 use std::process::Command;
@@ -15,37 +18,29 @@ use std::time::{Duration, Instant};
 use crate::workspace::{Member, WorkspaceGraph};
 
 /// Track the compilation state of each crate.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 enum CrateState {
-    /// Not yet started.
     Pending,
-    /// Type-checking / metadata generation in progress.
     Checking,
-    /// Metadata (rmeta) is ready — downstream can start type-checking.
     MetadataReady,
-    /// Full compilation (codegen + linking) in progress.
     Building,
-    /// Fully compiled.
     Done,
-    /// Failed.
     Failed(String),
 }
 
 /// A pipelined build result for a single crate.
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct PipelineResult {
-    name: String,
-    check_duration: Duration,
-    build_duration: Duration,
-    success: bool,
+    pub name: String,
+    pub check_duration: Duration,
+    pub build_duration: Duration,
+    pub success: bool,
 }
 
 /// Run a pipelined build across workspace members.
-///
-/// The pipeline works in three phases per crate:
-/// 1. `cargo check` — produces .rmeta metadata, fast
-/// 2. Signal downstream crates that metadata is ready
-/// 3. `cargo build` — full codegen, runs in parallel with downstream checks
+#[allow(dead_code)]
 pub fn pipelined_build(
     graph: &WorkspaceGraph,
     release: bool,
@@ -60,24 +55,20 @@ pub fn pipelined_build(
     ));
 
     let results: Arc<Mutex<Vec<PipelineResult>>> = Arc::new(Mutex::new(Vec::new()));
-
-    // Build in waves, but within each wave, pipeline check -> build
     let waves = crate::workspace::parallel_waves(graph)?;
 
     for wave in &waves {
         let wave_members: Vec<Member> = wave.iter().map(|m| (*m).clone()).collect();
         let wave_names: Vec<String> = wave_members.iter().map(|m| m.name.clone()).collect();
 
-        // Phase 1: Start checks for all members in this wave
+        // Phase 1: check all members in this wave
         let check_handles: Vec<_> = wave_members
             .iter()
             .map(|member| {
                 let member = member.clone();
                 let states = Arc::clone(&states);
-                let release = release;
 
                 thread::spawn(move || -> (String, bool, Duration) {
-                    // Wait for all upstream dependencies to have metadata ready
                     wait_for_deps_metadata(&member.name, &states);
 
                     {
@@ -93,7 +84,6 @@ pub fn pipelined_build(
                     }
 
                     let success = cmd.output().map(|o| o.status.success()).unwrap_or(false);
-
                     let duration = start.elapsed();
 
                     {
@@ -113,21 +103,19 @@ pub fn pipelined_build(
             })
             .collect();
 
-        // Collect check results
         let mut check_results: HashMap<String, (bool, Duration)> = HashMap::new();
         for handle in check_handles {
             let (name, success, duration) = handle.join().expect("check thread panicked");
             check_results.insert(name, (success, duration));
         }
 
-        // Phase 2: Start full builds for members that passed check
+        // Phase 2: full build for members that passed check
         let build_handles: Vec<_> = wave_members
             .iter()
             .filter(|m| check_results.get(&m.name).map(|(s, _)| *s).unwrap_or(false))
             .map(|member| {
                 let member = member.clone();
                 let states = Arc::clone(&states);
-                let release = release;
 
                 thread::spawn(move || -> (String, bool, Duration) {
                     {
@@ -143,7 +131,6 @@ pub fn pipelined_build(
                     }
 
                     let success = cmd.output().map(|o| o.status.success()).unwrap_or(false);
-
                     let duration = start.elapsed();
 
                     {
@@ -163,7 +150,6 @@ pub fn pipelined_build(
             })
             .collect();
 
-        // Collect build results
         for handle in build_handles {
             let (name, success, build_duration) = handle.join().expect("build thread panicked");
             let (check_success, check_duration) = check_results
@@ -179,28 +165,12 @@ pub fn pipelined_build(
             });
         }
 
-        // Report failures
-        for name in &wave_names {
-            let (check_success, _) = check_results
-                .get(name)
-                .copied()
-                .unwrap_or((false, Duration::ZERO));
-            if !check_success {
-                results.lock().unwrap().push(PipelineResult {
-                    name: name.clone(),
-                    check_duration: Duration::ZERO,
-                    build_duration: Duration::ZERO,
-                    success: false,
-                });
-            }
-        }
-
-        // Check for failures before moving to next wave
+        // Check for failures
         let any_failed = {
             let s = states.lock().unwrap();
             wave_names
                 .iter()
-                .any(|n| matches!(s.get(n), Some(CrateState::Failed(_))))
+                .any(|n| matches!(s.get(n.as_str()), Some(CrateState::Failed(_))))
         };
         if any_failed {
             let failures: Vec<String> = {
@@ -220,7 +190,6 @@ pub fn pipelined_build(
         .into_inner()
         .unwrap();
 
-    // Print timing summary
     crate::output::info("pipeline build timing:");
     for r in &final_results {
         if r.success {
@@ -238,15 +207,12 @@ pub fn pipelined_build(
     Ok(final_results)
 }
 
-/// Wait until all upstream dependencies have at least MetadataReady state.
+#[allow(dead_code)]
 fn wait_for_deps_metadata(_name: &str, _states: &Arc<Mutex<HashMap<String, CrateState>>>) {
-    // In the current wave-based approach, all deps from previous waves
-    // are already Done before this wave starts, so this is a no-op.
-    // This function becomes meaningful when we move to a fully event-driven
-    // scheduler that doesn't wait for full waves.
+    // No-op in wave-based approach. Becomes meaningful with event-driven scheduler.
 }
 
-/// Print a summary of the pipelined build.
+#[allow(dead_code)]
 pub fn print_summary(results: &[PipelineResult]) {
     let total_check: Duration = results.iter().map(|r| r.check_duration).sum();
     let total_build: Duration = results.iter().map(|r| r.build_duration).sum();

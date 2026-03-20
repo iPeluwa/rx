@@ -317,6 +317,96 @@ pub enum Command {
     /// Manage the rxd background daemon
     #[command(subcommand)]
     Daemon(DaemonCommand),
+
+    /// Check MSRV compatibility of dependencies
+    Compat,
+
+    /// Run tests with smart ordering and optional sharding
+    #[command(name = "test-smart")]
+    TestSmart {
+        /// Test name filter
+        filter: Option<String>,
+        /// Package to test
+        #[arg(long, short)]
+        package: Option<String>,
+        /// Build in release mode
+        #[arg(long, short)]
+        release: bool,
+        /// Number of parallel shards
+        #[arg(long)]
+        shards: Option<u32>,
+    },
+
+    /// Run a sandboxed build to detect undeclared dependencies
+    Sandbox {
+        /// Build in release mode
+        #[arg(long, short)]
+        release: bool,
+    },
+
+    /// Manage private crate registries
+    #[command(subcommand)]
+    Registry(RegistryCommand),
+
+    /// Check lockfile health and enforce policies
+    #[command(subcommand)]
+    Lockfile(LockfileCommand),
+
+    /// Manage anonymous usage telemetry
+    #[command(subcommand)]
+    Telemetry(TelemetryCommand),
+
+    /// Manage persistent background worker processes
+    #[command(subcommand)]
+    Worker(WorkerCommand),
+}
+
+#[derive(Subcommand)]
+pub enum RegistryCommand {
+    /// Authenticate with a private registry
+    Login {
+        /// Registry name
+        registry: String,
+        /// Token (omit for interactive login)
+        token: Option<String>,
+    },
+    /// List configured registries
+    List,
+    /// Add a new registry
+    Add {
+        /// Registry name
+        name: String,
+        /// Registry index URL
+        index: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum LockfileCommand {
+    /// Check lockfile health (existence, freshness, git status)
+    Check,
+    /// Enforce lockfile is in sync (for CI: fails if out of date)
+    Enforce,
+}
+
+#[derive(Subcommand)]
+pub enum TelemetryCommand {
+    /// Enable anonymous telemetry
+    On,
+    /// Disable telemetry
+    Off,
+    /// Show telemetry status and collected data
+    Status,
+}
+
+#[derive(Subcommand)]
+pub enum WorkerCommand {
+    /// Pre-warm background workers (check, fmt, lint)
+    Warm,
+    /// Show status of active workers
+    Status,
+    /// Stop all workers
+    Stop,
 }
 
 #[derive(Subcommand)]
@@ -596,6 +686,52 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 }
             };
         }
+        Command::Compat => return crate::compat::check_compat(),
+        Command::TestSmart {
+            filter,
+            package,
+            release,
+            shards,
+        } => {
+            return crate::test_orchestrator::run_orchestrated(
+                filter.as_deref(),
+                package.as_deref(),
+                *release,
+                *shards,
+            );
+        }
+        Command::Sandbox { release } => {
+            return crate::sandbox::sandboxed_build(*release);
+        }
+        Command::Registry(cmd) => {
+            return match cmd {
+                RegistryCommand::Login { registry, token } => {
+                    crate::registry::login(registry, token.as_deref())
+                }
+                RegistryCommand::List => crate::registry::list_registries(),
+                RegistryCommand::Add { name, index } => crate::registry::add_registry(name, index),
+            };
+        }
+        Command::Lockfile(cmd) => {
+            return match cmd {
+                LockfileCommand::Check => crate::lockfile::check(),
+                LockfileCommand::Enforce => crate::lockfile::enforce(),
+            };
+        }
+        Command::Telemetry(cmd) => {
+            return match cmd {
+                TelemetryCommand::On => crate::telemetry::enable(),
+                TelemetryCommand::Off => crate::telemetry::disable(),
+                TelemetryCommand::Status => crate::telemetry::status(),
+            };
+        }
+        Command::Worker(cmd) => {
+            return match cmd {
+                WorkerCommand::Warm => crate::worker::warm(),
+                WorkerCommand::Status => crate::worker::status(),
+                WorkerCommand::Stop => crate::worker::stop_all(),
+            };
+        }
         _ => {}
     }
 
@@ -700,6 +836,13 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         | Command::Manpage
         | Command::Sbom { .. }
         | Command::TestAdvanced(_)
-        | Command::Daemon(_) => unreachable!(),
+        | Command::Daemon(_)
+        | Command::Compat
+        | Command::TestSmart { .. }
+        | Command::Sandbox { .. }
+        | Command::Registry(_)
+        | Command::Lockfile(_)
+        | Command::Telemetry(_)
+        | Command::Worker(_) => unreachable!(),
     }
 }
