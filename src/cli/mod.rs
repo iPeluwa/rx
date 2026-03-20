@@ -532,6 +532,17 @@ pub enum CacheCommand {
     },
     /// Purge the entire cache
     Purge,
+    /// Export the cache as a portable archive (for CI)
+    Export {
+        /// Output file path (default: rx-cache.tar.gz)
+        #[arg(long, short)]
+        output: Option<String>,
+    },
+    /// Import a cache archive
+    Import {
+        /// Archive file to import
+        path: String,
+    },
 }
 
 #[derive(Subcommand)]
