@@ -394,6 +394,8 @@ pub enum LockfileCommand {
     Check,
     /// Enforce lockfile is in sync (for CI: fails if out of date)
     Enforce,
+    /// Deep audit: duplicates, git deps, checksums, reproducibility score
+    Audit,
 }
 
 #[derive(Subcommand)]
@@ -753,6 +755,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             return match cmd {
                 LockfileCommand::Check => crate::lockfile::check(),
                 LockfileCommand::Enforce => crate::lockfile::enforce(),
+                LockfileCommand::Audit => crate::lockfile::audit(),
             };
         }
         Command::Telemetry(cmd) => {
