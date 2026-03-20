@@ -65,6 +65,7 @@ pub struct BuildConfig {
     /// Enable incremental linking optimizations (split-debuginfo, --as-needed)
     pub incremental_link: bool,
     /// Remote cache URL: s3://bucket/prefix, gs://bucket/prefix, or /path
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub remote_cache: String,
 }
 

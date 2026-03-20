@@ -93,10 +93,24 @@ unsafe fn libc_free_kill_check(pid: u32) -> bool {
     output.map(|o| o.status.success()).unwrap_or(false)
 }
 
-/// Start the daemon in the background.
-pub fn start() -> Result<()> {
+/// Start the daemon. If `foreground` is false, re-exec as a background process.
+pub fn start(foreground: bool) -> Result<()> {
     if is_running() {
         crate::output::info("daemon is already running");
+        return Ok(());
+    }
+
+    if !foreground {
+        // Re-exec ourselves with --foreground in the background
+        let exe = std::env::current_exe().context("cannot determine own executable path")?;
+        let child = process::Command::new(exe)
+            .args(["daemon", "start", "--foreground"])
+            .stdin(process::Stdio::null())
+            .stdout(process::Stdio::null())
+            .stderr(process::Stdio::null())
+            .spawn()
+            .context("failed to spawn background daemon")?;
+        crate::output::success(&format!("daemon started in background (pid {})", child.id()));
         return Ok(());
     }
 

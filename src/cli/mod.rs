@@ -411,8 +411,12 @@ pub enum WorkerCommand {
 
 #[derive(Subcommand)]
 pub enum DaemonCommand {
-    /// Start the daemon in the foreground
-    Start,
+    /// Start the daemon
+    Start {
+        /// Run in the foreground (default: daemonize to background)
+        #[arg(long)]
+        foreground: bool,
+    },
     /// Stop a running daemon
     Stop,
     /// Show daemon status
@@ -669,7 +673,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         }
         Command::Daemon(cmd) => {
             return match cmd {
-                DaemonCommand::Start => crate::daemon::start(),
+                DaemonCommand::Start { foreground } => crate::daemon::start(*foreground),
                 DaemonCommand::Stop => crate::daemon::stop(),
                 DaemonCommand::Status => crate::daemon::status(),
                 DaemonCommand::Ping => {

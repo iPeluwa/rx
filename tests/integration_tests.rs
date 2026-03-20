@@ -157,3 +157,164 @@ fn integration_quiet_flag() {
         "quiet mode should suppress [rx] messages, got: {stderr}"
     );
 }
+
+#[test]
+fn integration_compat_runs() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "int_compat");
+
+    let output = rx(&project, &["compat", "--quiet"]);
+    let code = output.status.code().unwrap_or(-1);
+    assert!(
+        code == 0 || code == 1,
+        "rx compat exited with unexpected code: {code}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "rx compat panicked: {stderr}"
+    );
+}
+
+#[test]
+fn integration_lockfile_check_runs() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "int_lockcheck");
+
+    // Generate Cargo.lock by building
+    Command::new("cargo")
+        .args(["build", "--quiet"])
+        .current_dir(&project)
+        .output()
+        .expect("cargo build failed");
+
+    let output = rx(&project, &["lockfile", "check"]);
+    assert!(
+        output.status.success(),
+        "rx lockfile check failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn integration_lockfile_enforce_runs() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "int_lockenforce");
+
+    // Generate Cargo.lock by building
+    Command::new("cargo")
+        .args(["build", "--quiet"])
+        .current_dir(&project)
+        .output()
+        .expect("cargo build failed");
+
+    let output = rx(&project, &["lockfile", "enforce"]);
+    assert!(
+        output.status.success(),
+        "rx lockfile enforce failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn integration_telemetry_status_runs() {
+    let tmp = TempDir::new().unwrap();
+
+    let output = rx(tmp.path(), &["telemetry", "status"]);
+    assert!(
+        output.status.success(),
+        "rx telemetry status failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn integration_telemetry_on_off() {
+    let tmp = TempDir::new().unwrap();
+
+    let output_on = rx(tmp.path(), &["telemetry", "on"]);
+    assert!(
+        output_on.status.success(),
+        "rx telemetry on failed: {}",
+        String::from_utf8_lossy(&output_on.stderr)
+    );
+
+    let output_off = rx(tmp.path(), &["telemetry", "off"]);
+    assert!(
+        output_off.status.success(),
+        "rx telemetry off failed: {}",
+        String::from_utf8_lossy(&output_off.stderr)
+    );
+}
+
+#[test]
+#[ignore] // requires sandbox-exec (macOS only, not available in all environments)
+fn integration_sandbox_runs() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "int_sandbox");
+
+    let output = rx(&project, &["sandbox", "--quiet"]);
+    assert!(
+        output.status.success(),
+        "rx sandbox failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn integration_explain_known_code() {
+    let tmp = TempDir::new().unwrap();
+
+    let output = rx(tmp.path(), &["explain", "E0502"]);
+    assert!(
+        output.status.success(),
+        "rx explain E0502 failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("borrow"),
+        "rx explain E0502 should mention 'borrow', got: {stdout}"
+    );
+}
+
+#[test]
+fn integration_explain_unknown_code() {
+    let tmp = TempDir::new().unwrap();
+
+    let output = rx(tmp.path(), &["explain", "E9999"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("panicked"),
+        "rx explain E9999 panicked: {stderr}"
+    );
+}
+
+#[test]
+fn integration_worker_status() {
+    let tmp = TempDir::new().unwrap();
+
+    let output = rx(tmp.path(), &["worker", "status"]);
+    assert!(
+        output.status.success(),
+        "rx worker status failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn integration_registry_list() {
+    let tmp = TempDir::new().unwrap();
+
+    let output = rx(tmp.path(), &["registry", "list"]);
+    assert!(
+        output.status.success(),
+        "rx registry list failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("crates.io"),
+        "rx registry list should mention 'crates.io', got: {stdout}"
+    );
+}

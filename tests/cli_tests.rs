@@ -697,7 +697,7 @@ fn parse_daemon_start() {
     let cli = parse(&["daemon", "start"]);
     assert!(matches!(
         cli.command,
-        rx::cli::Command::Daemon(rx::cli::DaemonCommand::Start)
+        rx::cli::Command::Daemon(rx::cli::DaemonCommand::Start { .. })
     ));
 }
 

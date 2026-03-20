@@ -5,6 +5,12 @@ edition = "2024"
 description = "A fast, unified Rust toolchain manager"
 license = "MIT"
 rust-version = "1.85.0"
+repository = "https://github.com/iPeluwa/rx"
+homepage = "https://github.com/iPeluwa/rx"
+readme = "README.md"
+keywords = ["cargo", "build", "toolchain", "workspace", "cache"]
+categories = ["development-tools", "development-tools::build-utils", "command-line-utilities"]
+exclude = ["docs/", "editors/", "action/", ".github/"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
