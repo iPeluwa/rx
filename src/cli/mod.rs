@@ -619,6 +619,16 @@ pub fn dispatch(cli: Cli) -> Result<()> {
     crate::output::set_quiet(cli.quiet);
     crate::output::set_verbose(cli.verbose);
 
+    // Start speculative cargo check for build/check commands.
+    // This runs while config is being loaded, saving 100-300ms of latency.
+    let speculative = match &cli.command {
+        Command::Check { .. } | Command::Build { .. } => {
+            crate::output::verbose("starting speculative cargo check...");
+            Some(crate::speculative::SpeculativeChecker::start())
+        }
+        _ => None,
+    };
+
     // Commands that don't need config
     match &cli.command {
         Command::Doctor => return crate::doctor::doctor(),
@@ -784,7 +794,21 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             release,
             package,
             target,
-        } => crate::build::build(release, package.as_deref(), target.as_deref(), &config),
+        } => {
+            // The speculative check warms the incremental cache.
+            // Just let it finish in the background — build will benefit.
+            if let Some(checker) = speculative {
+                if release || package.is_some() || target.is_some() {
+                    // Speculative check won't help much for release/cross builds
+                    checker.cancel();
+                } else {
+                    // Let it run — the incremental compilation will be warmer
+                    crate::output::verbose("speculative check warming incremental cache");
+                    drop(checker); // detach, don't wait
+                }
+            }
+            crate::build::build(release, package.as_deref(), target.as_deref(), &config)
+        }
         Command::Run { release, args } => crate::build::run(release, &args, &config),
         Command::Test {
             filter,
@@ -814,7 +838,29 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         }
         Command::Fmt { check } => crate::fmt::fmt(check, &config),
         Command::Lint { fix } => crate::lint::lint(fix, &config),
-        Command::Check { package } => crate::check::check(package.as_deref(), &config),
+        Command::Check { package } => {
+            // If no custom flags and no package filter, reuse the speculative check
+            if package.is_none() {
+                if let Some(checker) = speculative {
+                    if crate::build::build_rustflags_pub(&config).is_none() {
+                        crate::output::verbose("reusing speculative check result");
+                        let result = checker.join();
+                        if result.success {
+                            crate::output::success("check completed (speculative)");
+                            return Ok(());
+                        }
+                        // Speculative check failed — fall through to normal check
+                        // to get proper error output
+                    } else {
+                        crate::output::verbose("custom RUSTFLAGS detected, discarding speculative check");
+                        checker.cancel();
+                    }
+                }
+            } else if let Some(checker) = speculative {
+                checker.cancel();
+            }
+            crate::check::check(package.as_deref(), &config)
+        }
         Command::Fix => crate::fix::fix(&config),
         Command::Ci => crate::ci::ci(&config),
         Command::Bench {
