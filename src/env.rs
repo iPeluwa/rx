@@ -73,11 +73,7 @@ pub fn show_env(config: &RxConfig) -> Result<()> {
         keys.sort();
         for key in keys {
             let value = &dotenv[key];
-            println!(
-                "    {:<30} = {}",
-                key,
-                display_value(key, value).dimmed()
-            );
+            println!("    {:<30} = {}", key, display_value(key, value).dimmed());
         }
     }
 
@@ -87,11 +83,7 @@ pub fn show_env(config: &RxConfig) -> Result<()> {
         keys.sort();
         for key in keys {
             let value = &config.env[key];
-            println!(
-                "    {:<30} = {}",
-                key,
-                display_value(key, value).dimmed()
-            );
+            println!("    {:<30} = {}", key, display_value(key, value).dimmed());
         }
     }
 
@@ -153,10 +145,8 @@ pub fn check_env(_config: &RxConfig) -> Result<()> {
             .collect();
         missing.sort();
 
-        let mut present: Vec<&String> = example
-            .keys()
-            .filter(|k| dotenv.contains_key(*k))
-            .collect();
+        let mut present: Vec<&String> =
+            example.keys().filter(|k| dotenv.contains_key(*k)).collect();
         present.sort();
 
         if !present.is_empty() {
@@ -187,7 +177,10 @@ pub fn check_env(_config: &RxConfig) -> Result<()> {
         undocumented.sort();
 
         if !undocumented.is_empty() {
-            println!("\n  {}", "Undocumented (in .env but not .env.example):".bold());
+            println!(
+                "\n  {}",
+                "Undocumented (in .env but not .env.example):".bold()
+            );
             for key in &undocumented {
                 println!("  {}  {}", "⚠".yellow(), key);
             }
@@ -197,9 +190,7 @@ pub fn check_env(_config: &RxConfig) -> Result<()> {
     println!("\n{}", "━".repeat(60).dimmed());
 
     if issues > 0 {
-        crate::output::warn(&format!(
-            "{issues} required variable(s) missing from .env"
-        ));
+        crate::output::warn(&format!("{issues} required variable(s) missing from .env"));
     } else if Path::new(".env.example").exists() {
         crate::output::success("all variables from .env.example are present in .env");
     }
