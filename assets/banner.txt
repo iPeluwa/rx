@@ -1,0 +1,15 @@
+
+  ┏━━━━━━━━━━━┓
+  ┃  ██████╗  ┃
+  ┃  ██╔══██╗ ┃  rx — fast, unified Rust toolchain manager
+  ┃  ██████╔╝ ┃
+  ┃  ██╔══██╗ ┃  Build faster. Ship sooner.
+  ┃  ██║  ██║ ┃
+  ┃  ╚═╝  ╚═╝ ┃  https://github.com/iPeluwa/rx
+  ┃  ██╗  ██╗ ┃
+  ┃  ╚██╗██╔╝ ┃
+  ┃   ╚███╔╝  ┃
+  ┃   ██╔██╗  ┃
+  ┃  ██╔╝ ██╗ ┃
+  ┃  ╚═╝  ╚═╝ ┃
+  ┗━━━━━━━━━━━┛

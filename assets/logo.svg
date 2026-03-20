@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <rect width="200" height="200" rx="32" fill="#1a1a2e"/>
+  <text x="100" y="130" text-anchor="middle" font-family="monospace" font-weight="bold" font-size="96" fill="#e94560">rx</text>
+  <text x="100" y="170" text-anchor="middle" font-family="monospace" font-size="16" fill="#7f8c8d">fast rust toolchain</text>
+</svg>

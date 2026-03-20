@@ -17,6 +17,12 @@ struct TestHistory {
     durations: HashMap<String, f64>,
     /// Tests detected as flaky (pass sometimes, fail sometimes)
     flaky: Vec<String>,
+    /// Maps test name -> number of observed flip-flops (pass->fail or fail->pass)
+    #[serde(default)]
+    flaky_counts: HashMap<String, u32>,
+    /// Maps test name -> last known state (true = passed, false = failed)
+    #[serde(default)]
+    last_state: HashMap<String, bool>,
 }
 
 fn history_path() -> Result<PathBuf> {
@@ -109,13 +115,54 @@ pub fn run_orchestrated(
     }
 
     let start = std::time::Instant::now();
-    let status = cmd.status().context("failed to run tests")?;
+    let output = cmd.output().context("failed to run tests")?;
+    let status = output.status;
+
+    // Parse test results for flakiness detection
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut test_results = parse_test_results(&stdout);
+    test_results.extend(parse_test_results(&stderr));
 
     // Update history based on results
     let mut new_history = history;
+
+    // Detect flip-flops: tests that changed state since last run
+    for (test_name, passed) in &test_results {
+        if let Some(&last_passed) = new_history.last_state.get(test_name) {
+            // Check if state changed (flip-flop)
+            if last_passed != *passed {
+                let flip_count = new_history
+                    .flaky_counts
+                    .entry(test_name.clone())
+                    .or_insert(0);
+                *flip_count += 1;
+
+                // Auto-mark as flaky after 3+ flip-flops
+                if *flip_count >= 3 && !new_history.flaky.contains(test_name) {
+                    use owo_colors::OwoColorize;
+                    println!(
+                        "  {} test '{}' marked as flaky after {} flip-flops",
+                        "⚠".yellow(),
+                        test_name.yellow(),
+                        flip_count
+                    );
+                    new_history.flaky.push(test_name.clone());
+                }
+            }
+        }
+
+        // Update last known state
+        new_history.last_state.insert(test_name.clone(), *passed);
+
+        // Update failure counts
+        if !passed {
+            *new_history.failures.entry(test_name.clone()).or_insert(0) += 1;
+        }
+    }
+
     if !status.success() {
-        // Parse test output to find which tests failed
-        // For now, just increment a general counter
+        // Also track general failure for compatibility
         let key = filter.unwrap_or("all").to_string();
         *new_history.failures.entry(key).or_insert(0) += 1;
     } else {
@@ -242,6 +289,155 @@ fn list_tests(package: Option<&str>) -> Result<Vec<String>> {
     Ok(tests)
 }
 
+/// Parse cargo test output to extract test results.
+/// Returns a map of test name -> pass/fail status (true = passed, false = failed).
+fn parse_test_results(output: &str) -> HashMap<String, bool> {
+    let mut results = HashMap::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+
+        // Match lines like: "test module::test_name ... ok"
+        if let Some(rest) = trimmed.strip_prefix("test ") {
+            if let Some(dots_pos) = rest.find(" ... ") {
+                let test_name = rest[..dots_pos].trim();
+                let status = rest[dots_pos + 5..].trim();
+
+                if status == "ok" {
+                    results.insert(test_name.to_string(), true);
+                } else if status == "FAILED" {
+                    results.insert(test_name.to_string(), false);
+                }
+            }
+        }
+    }
+
+    results
+}
+
+/// Detect flaky tests by running the test suite multiple times.
+pub fn detect_flaky(filter: Option<&str>, package: Option<&str>, retries: u32) -> Result<()> {
+    use owo_colors::OwoColorize;
+
+    let retries = if retries == 0 { 3 } else { retries };
+
+    crate::output::info(&format!(
+        "running test suite {} times to detect flaky tests...",
+        retries
+    ));
+
+    // Track test results across runs
+    let mut all_results: Vec<HashMap<String, bool>> = Vec::new();
+
+    for run in 1..=retries {
+        crate::output::step(&format!("run {}/{}", run, retries), "running tests");
+
+        let mut cmd = Command::new("cargo");
+        cmd.arg("test");
+        cmd.arg("--");
+        cmd.arg("--nocapture");
+
+        if let Some(pkg) = package {
+            cmd.args(["--package", pkg]);
+        }
+        if let Some(f) = filter {
+            cmd.arg(f);
+        }
+
+        let output = cmd.output().context("failed to run tests")?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        // Parse both stdout and stderr as cargo test can output to either
+        let mut results = parse_test_results(&stdout);
+        results.extend(parse_test_results(&stderr));
+
+        if results.is_empty() {
+            crate::output::info("warning: no test results parsed");
+        } else {
+            crate::output::info(&format!("parsed {} test results", results.len()));
+        }
+
+        all_results.push(results);
+    }
+
+    if all_results.is_empty() {
+        crate::output::info("no test runs completed");
+        return Ok(());
+    }
+
+    // Detect flaky tests: tests that have both passes and failures
+    let mut flaky_tests: HashMap<String, (u32, u32)> = HashMap::new(); // test -> (passes, failures)
+
+    // Collect all test names
+    let mut all_test_names = std::collections::HashSet::new();
+    for results in &all_results {
+        for test_name in results.keys() {
+            all_test_names.insert(test_name.clone());
+        }
+    }
+
+    // Check each test across all runs
+    for test_name in all_test_names {
+        let mut passes = 0;
+        let mut failures = 0;
+
+        for results in &all_results {
+            if let Some(&passed) = results.get(&test_name) {
+                if passed {
+                    passes += 1;
+                } else {
+                    failures += 1;
+                }
+            }
+        }
+
+        // Flaky if both passed AND failed across runs
+        if passes > 0 && failures > 0 {
+            flaky_tests.insert(test_name, (passes, failures));
+        }
+    }
+
+    // Update history
+    let mut history = load_history();
+
+    if flaky_tests.is_empty() {
+        crate::output::success("no flaky tests detected!");
+    } else {
+        println!("\n{}", "Flaky Tests Detected".bold().red());
+        println!("{}", "─".repeat(70));
+
+        for (test_name, (passes, failures)) in &flaky_tests {
+            println!(
+                "  {} {} (passed: {}, failed: {})",
+                "⚠".yellow(),
+                test_name.bold(),
+                passes.to_string().green(),
+                failures.to_string().red()
+            );
+
+            // Add to flaky list if not already there
+            if !history.flaky.contains(test_name) {
+                history.flaky.push(test_name.clone());
+            }
+
+            // Update flaky counts
+            let flip_count = passes + failures - 1; // Number of state changes
+            *history.flaky_counts.entry(test_name.clone()).or_insert(0) += flip_count;
+        }
+
+        println!(
+            "\n  {} {} flaky test(s) detected",
+            "total:".dimmed(),
+            flaky_tests.len()
+        );
+    }
+
+    save_history(&history);
+
+    Ok(())
+}
+
 /// Show flaky test report.
 pub fn show_flaky() -> Result<()> {
     let history = load_history();
@@ -254,12 +450,27 @@ pub fn show_flaky() -> Result<()> {
     use owo_colors::OwoColorize;
 
     println!("{}", "Flaky Tests".bold());
-    println!("{}", "─".repeat(60));
+    println!("{}", "─".repeat(70));
     for test in &history.flaky {
-        println!("  {} {test}", "⚠".yellow());
+        let flip_count = history.flaky_counts.get(test).copied().unwrap_or(0);
+        if flip_count > 0 {
+            println!(
+                "  {} {} (flip-flops: {})",
+                "⚠".yellow(),
+                test,
+                flip_count.to_string().yellow()
+            );
+        } else {
+            println!("  {} {}", "⚠".yellow(), test);
+        }
     }
     println!(
-        "\n  {} run with --retries to confirm flakiness",
+        "\n  {} {} flaky test(s) detected",
+        "total:".dimmed(),
+        history.flaky.len()
+    );
+    println!(
+        "  {} run 'rx test detect-flaky' to re-scan for flaky tests",
         "hint:".dimmed()
     );
     Ok(())
@@ -290,5 +501,102 @@ mod tests {
         assert_eq!(restored.failures.get("test_foo"), Some(&3));
         assert_eq!(restored.durations.get("test_foo"), Some(&1.5));
         assert_eq!(restored.flaky, vec!["test_bar".to_string()]);
+    }
+
+    #[test]
+    fn parse_test_results_basic() {
+        let output = r#"
+running 3 tests
+test module::test_one ... ok
+test module::test_two ... FAILED
+test another::test_three ... ok
+        "#;
+
+        let results = parse_test_results(output);
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results.get("module::test_one"), Some(&true));
+        assert_eq!(results.get("module::test_two"), Some(&false));
+        assert_eq!(results.get("another::test_three"), Some(&true));
+    }
+
+    #[test]
+    fn parse_test_results_empty() {
+        let output = "some random output\nwith no test results";
+        let results = parse_test_results(output);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn parse_test_results_with_whitespace() {
+        let output = r#"
+    test   utils::helper_test   ...   ok
+test core::main_test ... FAILED
+        "#;
+
+        let results = parse_test_results(output);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results.get("utils::helper_test"), Some(&true));
+        assert_eq!(results.get("core::main_test"), Some(&false));
+    }
+
+    #[test]
+    fn parse_test_results_mixed_content() {
+        let output = r#"
+Compiling test-project v0.1.0
+Finished test [unoptimized + debuginfo] target(s) in 1.23s
+Running unittests (target/debug/deps/test_project-abc123)
+
+running 2 tests
+test fast_test ... ok
+test slow_test ... FAILED
+
+failures:
+
+---- slow_test stdout ----
+thread 'slow_test' panicked at 'assertion failed'
+
+failures:
+    slow_test
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out
+        "#;
+
+        let results = parse_test_results(output);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results.get("fast_test"), Some(&true));
+        assert_eq!(results.get("slow_test"), Some(&false));
+    }
+
+    #[test]
+    fn test_history_with_flaky_counts() {
+        let mut history = TestHistory::default();
+        history.flaky.push("test_flaky".to_string());
+        history.flaky_counts.insert("test_flaky".to_string(), 5);
+
+        let json = serde_json::to_string(&history).expect("serialize failed");
+        let restored: TestHistory = serde_json::from_str(&json).expect("deserialize failed");
+
+        assert_eq!(restored.flaky, vec!["test_flaky".to_string()]);
+        assert_eq!(restored.flaky_counts.get("test_flaky"), Some(&5));
+    }
+
+    #[test]
+    fn test_history_backward_compat() {
+        // Old format without flaky_counts and last_state
+        let old_json = r#"{
+            "failures": {"test_a": 2},
+            "durations": {"test_a": 1.5},
+            "flaky": ["test_b"]
+        }"#;
+
+        let restored: TestHistory = serde_json::from_str(old_json).expect("deserialize failed");
+
+        assert_eq!(restored.failures.get("test_a"), Some(&2));
+        assert_eq!(restored.flaky, vec!["test_b".to_string()]);
+        assert!(restored.flaky_counts.is_empty());
+        assert!(restored.last_state.is_empty());
     }
 }

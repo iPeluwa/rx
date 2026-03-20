@@ -397,6 +397,16 @@ pub enum TelemetryCommand {
     Off,
     /// Show telemetry status and collected data
     Status,
+    /// Export telemetry data in various formats (json, csv, markdown)
+    Export {
+        /// Export format: json, csv, markdown/md
+        #[arg(default_value = "json")]
+        format: String,
+    },
+    /// Print a human-readable usage report
+    Report,
+    /// Clear all telemetry data (preserves enabled/disabled state)
+    Reset,
 }
 
 #[derive(Subcommand)]
@@ -545,6 +555,10 @@ pub enum WsCommand {
         #[arg(trailing_var_arg = true, required = true)]
         cmd: Vec<String>,
     },
+    /// Push workspace member caches to remote
+    CachePush,
+    /// Pull workspace member caches from remote
+    CachePull,
 }
 
 #[derive(Subcommand)]
@@ -729,6 +743,9 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                 TelemetryCommand::On => crate::telemetry::enable(),
                 TelemetryCommand::Off => crate::telemetry::disable(),
                 TelemetryCommand::Status => crate::telemetry::status(),
+                TelemetryCommand::Export { format } => crate::telemetry::export(format),
+                TelemetryCommand::Report => crate::telemetry::report(),
+                TelemetryCommand::Reset => crate::telemetry::reset(),
             };
         }
         Command::Worker(cmd) => {

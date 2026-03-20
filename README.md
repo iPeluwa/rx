@@ -1,8 +1,16 @@
-# rx
+<p align="center">
+  <img src="assets/logo.svg" width="120" alt="rx logo" />
+</p>
 
-[![CI](https://github.com/iPeluwa/rx/actions/workflows/ci.yml/badge.svg)](https://github.com/iPeluwa/rx/actions/workflows/ci.yml)
+<h1 align="center">rx</h1>
 
-A fast, unified Rust toolchain manager. One binary to replace the fragmented Rust CLI ecosystem.
+<p align="center">
+  <a href="https://github.com/iPeluwa/rx/actions/workflows/ci.yml"><img src="https://github.com/iPeluwa/rx/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/iPeluwa/rx/releases"><img src="https://img.shields.io/github/v/release/iPeluwa/rx?label=latest" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+</p>
+
+<p align="center">A fast, unified Rust toolchain manager. One binary to replace the fragmented Rust CLI ecosystem.</p>
 
 ## Why
 

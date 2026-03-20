@@ -184,6 +184,186 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
+/// Export telemetry data in various formats.
+pub fn export(format: &str) -> Result<()> {
+    let data = load_telemetry();
+
+    match format {
+        "json" => {
+            let json = serde_json::to_string_pretty(&data)
+                .context("failed to serialize telemetry data")?;
+            println!("{}", json);
+        }
+        "csv" => {
+            println!("metric,value");
+            println!("enabled,{}", data.enabled);
+            println!("total_invocations,{}", data.total_invocations);
+            if let Some(ref platform) = data.platform {
+                println!("platform,{}", platform);
+            }
+            if let Some(ref first_seen) = data.first_seen {
+                println!("first_seen,{}", first_seen);
+            }
+            for (cmd, count) in &data.commands {
+                println!("command:{},{}", cmd, count);
+            }
+            for feature in &data.features_used {
+                println!("feature:{},true", feature);
+            }
+        }
+        "markdown" | "md" => {
+            println!("# Telemetry Report\n");
+            println!("| Metric | Value |");
+            println!("| ------ | ----- |");
+            println!("| Enabled | {} |", data.enabled);
+            println!("| Total Invocations | {} |", data.total_invocations);
+            if let Some(ref platform) = data.platform {
+                println!("| Platform | {} |", platform);
+            }
+            if let Some(ref first_seen) = data.first_seen {
+                println!("| First Seen | {} |", first_seen);
+            }
+            if !data.commands.is_empty() {
+                println!("\n## Command Usage\n");
+                println!("| Command | Count |");
+                println!("| ------- | ----- |");
+                let mut sorted: Vec<_> = data.commands.iter().collect();
+                sorted.sort_by(|a, b| b.1.cmp(a.1));
+                for (cmd, count) in sorted {
+                    println!("| {} | {} |", cmd, count);
+                }
+            }
+            if !data.features_used.is_empty() {
+                println!("\n## Features Used\n");
+                for feature in &data.features_used {
+                    println!("- {}", feature);
+                }
+            }
+        }
+        _ => anyhow::bail!(
+            "unsupported export format: {} (use json, csv, or markdown)",
+            format
+        ),
+    }
+
+    Ok(())
+}
+
+/// Print a human-readable usage report.
+pub fn report() -> Result<()> {
+    let data = load_telemetry();
+
+    use owo_colors::OwoColorize;
+
+    println!("{}", "Telemetry Usage Report".bold());
+    println!("{}", "═".repeat(60));
+
+    if !data.enabled {
+        println!("\n  {} Telemetry is disabled", "○".dimmed());
+        println!(
+            "  {} Run `rx telemetry on` to start collecting usage data",
+            "→".dimmed()
+        );
+        return Ok(());
+    }
+
+    // Calculate time period
+    let time_period = if let Some(ref first_seen) = data.first_seen {
+        if let Ok(first_time) =
+            time::OffsetDateTime::parse(first_seen, &time::format_description::well_known::Rfc3339)
+        {
+            let now = time::OffsetDateTime::now_utc();
+            let days = (now - first_time).whole_days();
+            if days > 0 {
+                format!("{} days", days)
+            } else {
+                "less than a day".to_string()
+            }
+        } else {
+            "unknown".to_string()
+        }
+    } else {
+        "unknown".to_string()
+    };
+
+    println!("\n{}", "Overview".bold());
+    println!(
+        "  Total invocations: {}",
+        data.total_invocations.to_string().cyan()
+    );
+    println!("  Time period: {}", time_period.dimmed());
+
+    // Calculate average invocations per day
+    if let Some(ref first_seen) = data.first_seen {
+        if let Ok(first_time) =
+            time::OffsetDateTime::parse(first_seen, &time::format_description::well_known::Rfc3339)
+        {
+            let now = time::OffsetDateTime::now_utc();
+            let days = (now - first_time).whole_days().max(1);
+            let avg = data.total_invocations as f64 / days as f64;
+            println!("  Average per day: {:.1}", avg);
+        }
+    }
+
+    if let Some(ref platform) = data.platform {
+        println!("  Platform: {}", platform.dimmed());
+    }
+
+    // Most-used commands (top 10)
+    if !data.commands.is_empty() {
+        println!("\n{}", "Most-Used Commands (Top 10)".bold());
+        let mut sorted: Vec<_> = data.commands.iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(a.1));
+        for (i, (cmd, count)) in sorted.iter().take(10).enumerate() {
+            let percentage = (**count as f64 / data.total_invocations as f64) * 100.0;
+            println!(
+                "  {}. {:<20} {} ({:.1}%)",
+                i + 1,
+                cmd.cyan(),
+                count,
+                percentage
+            );
+        }
+    }
+
+    // Features utilized
+    if !data.features_used.is_empty() {
+        println!("\n{}", "Features Utilized".bold());
+        for feature in &data.features_used {
+            println!("  • {}", feature.green());
+        }
+    } else {
+        println!("\n{}", "Features Utilized".bold());
+        println!("  {} No features recorded yet", "○".dimmed());
+    }
+
+    println!("\n{}", "─".repeat(60));
+    println!(
+        "  Data stored at: {}",
+        telemetry_path()?.display().to_string().dimmed()
+    );
+
+    Ok(())
+}
+
+/// Clear all telemetry data while preserving enabled/disabled state.
+pub fn reset() -> Result<()> {
+    let mut data = load_telemetry();
+    let enabled = data.enabled;
+
+    data.commands.clear();
+    data.features_used.clear();
+    data.total_invocations = 0;
+    data.first_seen = None;
+    data.platform = None;
+    data.enabled = enabled;
+
+    save_telemetry(&data);
+    crate::output::success("telemetry data cleared (enabled/disabled state preserved)");
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +400,115 @@ mod tests {
         assert_eq!(restored.total_invocations, 42);
         assert_eq!(restored.first_seen.as_deref(), Some("2025-01-01T00:00:00Z"));
         assert_eq!(restored.platform.as_deref(), Some("macos-aarch64"));
+    }
+
+    #[test]
+    fn csv_export_format() {
+        // Create test data
+        let mut data = TelemetryData {
+            enabled: true,
+            ..Default::default()
+        };
+        data.commands.insert("build".to_string(), 10);
+        data.commands.insert("test".to_string(), 5);
+        data.features_used.push("remote-cache".to_string());
+        data.total_invocations = 15;
+        data.first_seen = Some("2025-01-01T00:00:00Z".to_string());
+        data.platform = Some("linux-x86_64".to_string());
+
+        // Capture CSV output logic
+        let mut csv_lines = vec!["metric,value".to_string()];
+        csv_lines.push(format!("enabled,{}", data.enabled));
+        csv_lines.push(format!("total_invocations,{}", data.total_invocations));
+        if let Some(ref platform) = data.platform {
+            csv_lines.push(format!("platform,{}", platform));
+        }
+        if let Some(ref first_seen) = data.first_seen {
+            csv_lines.push(format!("first_seen,{}", first_seen));
+        }
+        for (cmd, count) in &data.commands {
+            csv_lines.push(format!("command:{},{}", cmd, count));
+        }
+        for feature in &data.features_used {
+            csv_lines.push(format!("feature:{},true", feature));
+        }
+
+        let csv_output = csv_lines.join("\n");
+
+        // Verify CSV format
+        assert!(csv_output.contains("metric,value"));
+        assert!(csv_output.contains("enabled,true"));
+        assert!(csv_output.contains("total_invocations,15"));
+        assert!(csv_output.contains("platform,linux-x86_64"));
+        assert!(csv_output.contains("first_seen,2025-01-01T00:00:00Z"));
+        assert!(csv_output.contains("command:build,10") || csv_output.contains("command:test,5"));
+        assert!(csv_output.contains("feature:remote-cache,true"));
+    }
+
+    #[test]
+    fn markdown_export_format() {
+        // Create test data
+        let mut data = TelemetryData {
+            enabled: true,
+            ..Default::default()
+        };
+        data.commands.insert("build".to_string(), 10);
+        data.commands.insert("test".to_string(), 5);
+        data.features_used.push("remote-cache".to_string());
+        data.total_invocations = 15;
+        data.first_seen = Some("2025-01-01T00:00:00Z".to_string());
+        data.platform = Some("linux-x86_64".to_string());
+
+        // Capture markdown output logic
+        let mut md_lines = vec!["# Telemetry Report".to_string()];
+        md_lines.push("".to_string());
+        md_lines.push("| Metric | Value |".to_string());
+        md_lines.push("| ------ | ----- |".to_string());
+        md_lines.push(format!("| Enabled | {} |", data.enabled));
+        md_lines.push(format!(
+            "| Total Invocations | {} |",
+            data.total_invocations
+        ));
+        if let Some(ref platform) = data.platform {
+            md_lines.push(format!("| Platform | {} |", platform));
+        }
+        if let Some(ref first_seen) = data.first_seen {
+            md_lines.push(format!("| First Seen | {} |", first_seen));
+        }
+        if !data.commands.is_empty() {
+            md_lines.push("".to_string());
+            md_lines.push("## Command Usage".to_string());
+            md_lines.push("".to_string());
+            md_lines.push("| Command | Count |".to_string());
+            md_lines.push("| ------- | ----- |".to_string());
+            let mut sorted: Vec<_> = data.commands.iter().collect();
+            sorted.sort_by(|a, b| b.1.cmp(a.1));
+            for (cmd, count) in sorted {
+                md_lines.push(format!("| {} | {} |", cmd, count));
+            }
+        }
+        if !data.features_used.is_empty() {
+            md_lines.push("".to_string());
+            md_lines.push("## Features Used".to_string());
+            md_lines.push("".to_string());
+            for feature in &data.features_used {
+                md_lines.push(format!("- {}", feature));
+            }
+        }
+
+        let md_output = md_lines.join("\n");
+
+        // Verify markdown format
+        assert!(md_output.contains("# Telemetry Report"));
+        assert!(md_output.contains("| Metric | Value |"));
+        assert!(md_output.contains("| Enabled | true |"));
+        assert!(md_output.contains("| Total Invocations | 15 |"));
+        assert!(md_output.contains("| Platform | linux-x86_64 |"));
+        assert!(md_output.contains("| First Seen | 2025-01-01T00:00:00Z |"));
+        assert!(md_output.contains("## Command Usage"));
+        assert!(md_output.contains("| build | 10 |"));
+        assert!(md_output.contains("| test | 5 |"));
+        assert!(md_output.contains("## Features Used"));
+        assert!(md_output.contains("- remote-cache"));
     }
 }

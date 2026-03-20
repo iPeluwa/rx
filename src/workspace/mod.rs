@@ -581,6 +581,154 @@ fn list_members(graph: &WorkspaceGraph) {
 }
 
 // ---------------------------------------------------------------------------
+// Remote cache integration
+// ---------------------------------------------------------------------------
+
+/// Push workspace member caches to remote backend.
+pub fn ws_cache_push(config: &crate::config::RxConfig) -> Result<()> {
+    let backend = match crate::remote_cache::resolve_backend(config) {
+        Some(b) => b,
+        None => {
+            crate::output::warn("no remote cache configured in rx.toml (build.remote_cache)");
+            return Ok(());
+        }
+    };
+
+    let graph = resolve_workspace()?;
+    crate::output::info(&format!(
+        "pushing cache for {} workspace members...",
+        graph.members.len()
+    ));
+
+    let mut pushed = 0;
+    let mut skipped = 0;
+    let mut failed = Vec::new();
+
+    for member in &graph.members {
+        let profile = "debug";
+        let rustflags = std::env::var("RUSTFLAGS").ok();
+
+        let fingerprint = match crate::cache::compute_build_fingerprint(
+            &member.path,
+            profile,
+            rustflags.as_deref(),
+        ) {
+            Ok(fp) => fp,
+            Err(e) => {
+                crate::output::warn(&format!(
+                    "{}: failed to compute fingerprint: {e}",
+                    member.name
+                ));
+                failed.push(member.name.clone());
+                continue;
+            }
+        };
+
+        let target_dir = member.path.join("target").join(profile);
+        if !target_dir.exists() {
+            crate::output::verbose(&format!("{}: no target dir, skipping", member.name));
+            skipped += 1;
+            continue;
+        }
+
+        crate::output::step(&member.name, &format!("pushing {}", &fingerprint[..8]));
+        match crate::remote_cache::push(&backend, &fingerprint, &target_dir) {
+            Ok(()) => {
+                pushed += 1;
+            }
+            Err(e) => {
+                crate::output::warn(&format!("{}: push failed: {e}", member.name));
+                failed.push(member.name.clone());
+            }
+        }
+    }
+
+    if !failed.is_empty() {
+        crate::output::warn(&format!("failed to push: {}", failed.join(", ")));
+    }
+
+    if pushed > 0 {
+        crate::output::success(&format!("pushed {pushed} member(s), skipped {skipped}"));
+    } else {
+        crate::output::info("no caches pushed");
+    }
+
+    Ok(())
+}
+
+/// Pull workspace member caches from remote backend.
+pub fn ws_cache_pull(config: &crate::config::RxConfig) -> Result<()> {
+    let backend = match crate::remote_cache::resolve_backend(config) {
+        Some(b) => b,
+        None => {
+            crate::output::warn("no remote cache configured in rx.toml (build.remote_cache)");
+            return Ok(());
+        }
+    };
+
+    let graph = resolve_workspace()?;
+    crate::output::info(&format!(
+        "pulling cache for {} workspace members...",
+        graph.members.len()
+    ));
+
+    let mut hits = 0;
+    let mut misses = 0;
+    let mut failed = Vec::new();
+
+    for member in &graph.members {
+        let profile = "debug";
+        let rustflags = std::env::var("RUSTFLAGS").ok();
+
+        let fingerprint = match crate::cache::compute_build_fingerprint(
+            &member.path,
+            profile,
+            rustflags.as_deref(),
+        ) {
+            Ok(fp) => fp,
+            Err(e) => {
+                crate::output::warn(&format!(
+                    "{}: failed to compute fingerprint: {e}",
+                    member.name
+                ));
+                failed.push(member.name.clone());
+                continue;
+            }
+        };
+
+        let target_dir = member.path.join("target").join(profile);
+
+        crate::output::step(&member.name, &format!("checking {}", &fingerprint[..8]));
+        match crate::remote_cache::pull(&backend, &fingerprint, &target_dir) {
+            Ok(true) => {
+                hits += 1;
+                crate::output::verbose(&format!("{}: cache hit", member.name));
+            }
+            Ok(false) => {
+                misses += 1;
+                crate::output::verbose(&format!("{}: cache miss", member.name));
+            }
+            Err(e) => {
+                crate::output::warn(&format!("{}: pull failed: {e}", member.name));
+                failed.push(member.name.clone());
+            }
+        }
+    }
+
+    if !failed.is_empty() {
+        crate::output::warn(&format!("failed to pull: {}", failed.join(", ")));
+    }
+
+    if hits > 0 {
+        crate::output::success(&format!("cache hits: {hits}, misses: {misses}"));
+    } else {
+        crate::output::info(&format!("no cache hits ({misses} misses)"));
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -618,5 +766,13 @@ pub fn dispatch(cmd: WsCommand) -> Result<()> {
         WsCommand::Run { cmd, args } => run_across_workspace(&cmd, &args),
         WsCommand::Script { name, packages } => run_script(&name, &packages),
         WsCommand::Exec { cmd } => exec_across_workspace(&cmd),
+        WsCommand::CachePush => {
+            let config = crate::config::load()?;
+            ws_cache_push(&config)
+        }
+        WsCommand::CachePull => {
+            let config = crate::config::load()?;
+            ws_cache_pull(&config)
+        }
     }
 }
