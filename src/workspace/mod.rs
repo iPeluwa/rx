@@ -1,38 +1,11 @@
 use anyhow::{Context, Result};
-use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::cli::WsCommand;
-
-// ---------------------------------------------------------------------------
-// Cargo.toml parsing (minimal, only what we need)
-// ---------------------------------------------------------------------------
-
-#[derive(Deserialize, Default)]
-struct CargoToml {
-    package: Option<PackageSection>,
-    workspace: Option<WorkspaceSection>,
-    dependencies: Option<HashMap<String, toml::Value>>,
-    #[serde(rename = "dev-dependencies")]
-    dev_dependencies: Option<HashMap<String, toml::Value>>,
-    #[serde(rename = "build-dependencies")]
-    build_dependencies: Option<HashMap<String, toml::Value>>,
-}
-
-#[derive(Deserialize, Default)]
-struct PackageSection {
-    name: Option<String>,
-}
-
-#[derive(Deserialize, Default)]
-struct WorkspaceSection {
-    members: Option<Vec<String>>,
-}
 
 // ---------------------------------------------------------------------------
 // Workspace graph
@@ -52,133 +25,79 @@ pub struct WorkspaceGraph {
     pub deps: HashMap<String, HashSet<String>>,
 }
 
-/// Find the workspace root by walking up to find a Cargo.toml with [workspace].
-fn find_workspace_root() -> Result<PathBuf> {
-    let mut dir = std::env::current_dir()?;
-    loop {
-        let cargo_toml = dir.join("Cargo.toml");
-        if cargo_toml.exists() {
-            let contents = fs::read_to_string(&cargo_toml)?;
-            let parsed: CargoToml = toml::from_str(&contents)
-                .with_context(|| format!("failed to parse {}", cargo_toml.display()))?;
-            if parsed.workspace.is_some() {
-                return Ok(dir);
-            }
-        }
-        if !dir.pop() {
-            anyhow::bail!(
-                "could not find a workspace root (Cargo.toml with [workspace]) in any parent directory"
-            );
-        }
-    }
-}
-
-/// Resolve glob patterns in workspace members list.
-fn resolve_member_globs(root: &Path, patterns: &[String]) -> Result<Vec<PathBuf>> {
-    let mut paths = Vec::new();
-    for pattern in patterns {
-        if pattern.contains('*') {
-            // Use simple glob matching via walkdir
-            let prefix = pattern.split('*').next().unwrap_or("");
-            let search_dir = root.join(prefix);
-            if search_dir.exists() {
-                for entry in fs::read_dir(&search_dir)? {
-                    let entry = entry?;
-                    let p = entry.path();
-                    if p.join("Cargo.toml").exists() {
-                        paths.push(p);
-                    }
-                }
-            }
-        } else {
-            let member_path = root.join(pattern);
-            if member_path.join("Cargo.toml").exists() {
-                paths.push(member_path);
-            }
-        }
-    }
-    Ok(paths)
-}
-
-/// Parse a member's Cargo.toml and extract its name and dependency names.
-fn parse_member(path: &Path) -> Result<(String, HashSet<String>)> {
-    let cargo_toml = path.join("Cargo.toml");
-    let contents = fs::read_to_string(&cargo_toml)
-        .with_context(|| format!("failed to read {}", cargo_toml.display()))?;
-    let parsed: CargoToml = toml::from_str(&contents)
-        .with_context(|| format!("failed to parse {}", cargo_toml.display()))?;
-
-    let name = parsed.package.and_then(|p| p.name).unwrap_or_else(|| {
-        path.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string()
-    });
-
-    let mut dep_names = HashSet::new();
-    for deps in [
-        &parsed.dependencies,
-        &parsed.dev_dependencies,
-        &parsed.build_dependencies,
-    ]
-    .into_iter()
-    .flatten()
-    {
-        for (dep_name, value) in deps {
-            let is_path_dep = match value {
-                toml::Value::Table(t) => {
-                    t.contains_key("path")
-                        || t.get("workspace")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false)
-                }
-                _ => false,
-            };
-            if is_path_dep {
-                dep_names.insert(dep_name.clone());
-            }
-        }
-    }
-
-    Ok((name, dep_names))
-}
-
-/// Build the full workspace graph.
+/// Build the full workspace graph from `cargo metadata`. Cargo owns
+/// workspace semantics (member globs, exclusions, inheritance, name
+/// resolution) — rx just reads the answer.
 pub fn resolve_workspace() -> Result<WorkspaceGraph> {
-    let root = find_workspace_root()?;
-    let cargo_toml = root.join("Cargo.toml");
-    let contents = fs::read_to_string(&cargo_toml)?;
-    let parsed: CargoToml = toml::from_str(&contents)?;
+    let output = Command::new("cargo")
+        .args(["metadata", "--no-deps", "--format-version", "1"])
+        .output()
+        .context("failed to run cargo metadata — is cargo installed?")?;
 
-    let ws = parsed
-        .workspace
-        .context("no [workspace] section in root Cargo.toml")?;
-    let member_patterns = ws.members.unwrap_or_default();
-    let member_paths = resolve_member_globs(&root, &member_patterns)?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "cargo metadata failed:\n{}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&output.stdout).context("failed to parse cargo metadata output")?;
+
+    let root = PathBuf::from(
+        metadata["workspace_root"]
+            .as_str()
+            .context("cargo metadata output missing workspace_root")?,
+    );
+
+    let packages = metadata["packages"]
+        .as_array()
+        .context("cargo metadata output missing packages")?;
+
+    // With --no-deps, `packages` contains exactly the workspace members.
+    let member_names: HashSet<String> = packages
+        .iter()
+        .filter_map(|p| p["name"].as_str().map(String::from))
+        .collect();
 
     let mut members = Vec::new();
     let mut deps = HashMap::new();
 
-    // First pass: collect all member names
-    let mut all_names = HashSet::new();
-    let mut parsed_members = Vec::new();
-    for path in &member_paths {
-        let (name, dep_names) = parse_member(path)?;
-        all_names.insert(name.clone());
-        parsed_members.push((name, path.clone(), dep_names));
+    for package in packages {
+        let name = package["name"]
+            .as_str()
+            .context("package missing name")?
+            .to_string();
+        let manifest = PathBuf::from(
+            package["manifest_path"]
+                .as_str()
+                .context("package missing manifest_path")?,
+        );
+        let path = manifest
+            .parent()
+            .context("manifest_path has no parent directory")?
+            .to_path_buf();
+
+        // Workspace-internal deps: path dependencies whose name is a member.
+        let ws_deps: HashSet<String> = package["dependencies"]
+            .as_array()
+            .map(|dep_list| {
+                dep_list
+                    .iter()
+                    .filter(|d| !d["path"].is_null())
+                    .filter_map(|d| d["name"].as_str())
+                    .filter(|n| member_names.contains(*n))
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        deps.insert(name.clone(), ws_deps);
+        members.push(Member { name, path });
     }
 
-    // Second pass: filter deps to only include workspace-internal deps
-    for (name, path, dep_names) in parsed_members {
-        let ws_deps: HashSet<String> = dep_names
-            .into_iter()
-            .filter(|d| all_names.contains(d))
-            .collect();
-        deps.insert(name.clone(), ws_deps);
-        members.push(Member {
-            name,
-            path: path.clone(),
-        });
+    if members.is_empty() {
+        anyhow::bail!("no packages found in workspace");
     }
 
     Ok(WorkspaceGraph {
@@ -438,44 +357,6 @@ fn exec_across_workspace(cmd_parts: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Run a named script from rx.toml across workspace members.
-fn run_script(name: &str, packages: &[String]) -> Result<()> {
-    let graph = resolve_workspace()?;
-    let sorted = topo_sort(&graph)?;
-
-    let filter: HashSet<&str> = packages.iter().map(|s| s.as_str()).collect();
-
-    let mut found_any = false;
-    for member in sorted {
-        if !filter.is_empty() && !filter.contains(member.name.as_str()) {
-            continue;
-        }
-
-        let config = crate::config::load_for_dir(&member.path)?;
-        if let Some(script) = config.scripts.get(name) {
-            found_any = true;
-            crate::output::step(&member.name, script);
-            let status = Command::new("sh")
-                .arg("-c")
-                .arg(script)
-                .current_dir(&member.path)
-                .status()
-                .with_context(|| format!("failed to run script '{name}' in {}", member.name))?;
-
-            if !status.success() {
-                anyhow::bail!("script '{name}' failed in {}", member.name);
-            }
-        }
-    }
-
-    if !found_any {
-        crate::output::warn(&format!(
-            "no workspace members define script '{name}' in rx.toml"
-        ));
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
 // Display
 // ---------------------------------------------------------------------------
@@ -524,7 +405,6 @@ pub fn dispatch(cmd: WsCommand) -> Result<()> {
             Ok(())
         }
         WsCommand::Run { cmd, args } => run_across_workspace(&cmd, &args),
-        WsCommand::Script { name, packages } => run_script(&name, &packages),
         WsCommand::Exec { cmd } => exec_across_workspace(&cmd),
     }
 }

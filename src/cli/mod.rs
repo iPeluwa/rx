@@ -53,12 +53,11 @@ pub enum Command {
         target: Option<String>,
     },
 
-    /// Build and run the project
+    /// Run a task from rx.toml (or a built-in task); lists tasks if omitted
     Run {
-        /// Build in release mode
-        #[arg(long, short)]
-        release: bool,
-        /// Arguments to pass to the binary
+        /// Task name (built-ins: fmt, lint, test, build, check, ci)
+        task: Option<String>,
+        /// Extra arguments appended to the task's shell command
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -105,7 +104,7 @@ pub enum Command {
     /// Auto-fix lint warnings, compiler suggestions, and formatting
     Fix,
 
-    /// Run the full CI pipeline locally (fmt, clippy, test, build)
+    /// Run the ci task: your [tasks.ci] pipeline, or fmt+lint+test+build
     Ci,
 
     /// Show the dependency graph between workspace members
@@ -131,12 +130,6 @@ pub enum Command {
 
     /// Check your development environment
     Doctor,
-
-    /// Run a script defined in rx.toml
-    Script {
-        /// Script name (omit to list all scripts)
-        name: Option<String>,
-    },
 
     /// Show build time statistics and trends
     #[command(subcommand)]
@@ -179,14 +172,6 @@ pub enum WsCommand {
         /// Extra arguments to pass to the command
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
-    },
-    /// Run a custom script defined in rx.toml across workspace members
-    Script {
-        /// Script name
-        name: String,
-        /// Only run on specific packages (comma-separated)
-        #[arg(long, short, value_delimiter = ',')]
-        packages: Vec<String>,
     },
     /// Execute a shell command in each workspace member directory
     Exec {
@@ -269,7 +254,10 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             package,
             target,
         } => crate::build::build(release, package.as_deref(), target.as_deref(), &config),
-        Command::Run { release, args } => crate::build::run(release, &args, &config),
+        Command::Run { task, args } => match task {
+            Some(name) => crate::task::runner::run(&name, &args, &config),
+            None => crate::task::runner::list(&config),
+        },
         Command::Test {
             filter,
             package,
@@ -300,15 +288,11 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Command::Lint { fix } => crate::lint::lint(fix, &config),
         Command::Check { package } => crate::check::check(package.as_deref(), &config),
         Command::Fix => crate::fix::fix(&config),
-        Command::Ci => crate::ci::ci(&config),
+        Command::Ci => crate::task::runner::run("ci", &[], &config),
         Command::Graph => crate::workspace::dispatch(WsCommand::Graph),
         Command::Cache(cmd) => crate::cache::dispatch(cmd),
         Command::Ws(cmd) => crate::workspace::dispatch(cmd),
         Command::Clean { gc, all } => crate::cache::clean(gc, all),
-        Command::Script { name } => match name {
-            Some(n) => crate::script::run_script(&n, &config),
-            None => crate::script::list_scripts(&config),
-        },
         // Already handled above
         Command::Doctor
         | Command::Completions { .. }

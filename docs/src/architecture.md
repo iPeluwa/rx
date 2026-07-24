@@ -14,7 +14,7 @@ rx
 ├── workspace/         Dependency graph, topological sort (Kahn's), parallel waves
 ├── affected/          Git-diff-based affected package detection
 ├── ci/ + ci_gen/      Local CI pipeline and CI workflow generation
-├── script/            rx.toml script runner
+├── task/              task graph + runner: [tasks], depends-on, wave concurrency
 ├── completions/       Shell completions with context-aware dynamic values
 ├── output/            Colored output, timing, verbosity
 ├── stats/             Build time tracking and statistics
@@ -29,7 +29,7 @@ rx
 1. **CLI parsing** -- `clap` parses arguments and flags. The `--profile` flag is captured as a global option.
 2. **Config loading** (lazy) -- if the command needs configuration, rx loads `~/.rx/config.toml` and `./rx.toml`, merges them (project overrides global), and applies the active profile.
 3. **Environment setup** -- environment variables from `[env]` are set. The cached env at `~/.rx/env.lock` provides linker paths and toolchain info.
-4. **Command execution** -- the command module runs, calling cargo or other tools as subprocesses. Output is parsed from cargo's JSON stream for error hints and progress display.
+4. **Command execution** -- pipelines (`rx run`, `rx ci`) resolve a task graph and execute it wave by wave; each task is a shell command or a built-in module (fmt/lint/test/build/check) that calls cargo as a subprocess. Output is parsed from cargo's JSON stream for error hints and progress display.
 5. **Cache update** -- if the opt-in artifact cache is enabled, the fingerprint and artifacts are stored in `~/.rx/cache`.
 
 ## Config resolution

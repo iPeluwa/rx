@@ -15,10 +15,64 @@ pub struct RxConfig {
     pub test: TestConfig,
     pub lint: LintConfig,
     pub fmt: FmtConfig,
+    pub tasks: HashMap<String, TaskDef>,
+    /// Legacy alias for [tasks]; entries are merged into `tasks` (tasks win).
     pub scripts: HashMap<String, String>,
     pub env: HashMap<String, String>,
     #[serde(rename = "profile")]
     pub profiles: HashMap<String, ProfileOverride>,
+}
+
+/// A task definition: either a bare command string, or a table with a
+/// command and/or dependencies.
+///
+/// ```toml
+/// [tasks]
+/// fmt = "cargo fmt --all -- --check"
+///
+/// [tasks.ci]
+/// depends-on = ["fmt", "lint", "test", "build"]
+/// ```
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum TaskDef {
+    Command(String),
+    Full {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        command: Option<String>,
+        #[serde(rename = "depends-on", default, skip_serializing_if = "Vec::is_empty")]
+        depends_on: Vec<String>,
+    },
+}
+
+impl TaskDef {
+    pub fn command(&self) -> Option<&str> {
+        match self {
+            TaskDef::Command(cmd) => Some(cmd),
+            TaskDef::Full { command, .. } => command.as_deref(),
+        }
+    }
+
+    pub fn depends_on(&self) -> &[String] {
+        match self {
+            TaskDef::Command(_) => &[],
+            TaskDef::Full { depends_on, .. } => depends_on,
+        }
+    }
+}
+
+impl RxConfig {
+    /// All defined tasks, with legacy [scripts] entries merged in
+    /// ([tasks] wins on name collisions).
+    pub fn resolved_tasks(&self) -> HashMap<String, TaskDef> {
+        let mut tasks: HashMap<String, TaskDef> = self
+            .scripts
+            .iter()
+            .map(|(name, cmd)| (name.clone(), TaskDef::Command(cmd.clone())))
+            .collect();
+        tasks.extend(self.tasks.clone());
+        tasks
+    }
 }
 
 /// Profile-specific overrides (e.g. [profile.ci]).
@@ -208,6 +262,11 @@ pub fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
                 project.fmt.extra_args
             },
         },
+        tasks: {
+            let mut tasks = global.tasks;
+            tasks.extend(project.tasks);
+            tasks
+        },
         scripts: {
             let mut scripts = global.scripts;
             scripts.extend(project.scripts);
@@ -226,7 +285,9 @@ pub fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
     }
 }
 
-const KNOWN_TOP_KEYS: &[&str] = &["build", "test", "lint", "fmt", "scripts", "env", "profile"];
+const KNOWN_TOP_KEYS: &[&str] = &[
+    "build", "test", "lint", "fmt", "tasks", "scripts", "env", "profile",
+];
 
 /// Warn about unknown top-level keys in a config file.
 fn warn_unknown_keys(path: &Path) {
@@ -259,36 +320,19 @@ pub fn load() -> Result<RxConfig> {
     Ok(merge(global, project))
 }
 
-/// Load config for a specific directory (used by workspace per-member configs).
-pub fn load_for_dir(dir: &Path) -> Result<RxConfig> {
-    let config_path = dir.join("rx.toml");
-    if config_path.exists() {
-        load_from_path(&config_path)
-    } else {
-        Ok(RxConfig::default())
-    }
-}
-
 /// Generate a starter rx.toml with smart defaults based on the project.
 pub fn init_config(path: &Path) -> Result<()> {
     let mut config = RxConfig::default();
 
-    // Detect project structure for smart defaults
-    let project_dir = path.parent().unwrap_or(Path::new("."));
-
-    // Check if it's a workspace
-    let cargo_toml = project_dir.join("Cargo.toml");
-    if cargo_toml.exists() {
-        if let Ok(contents) = fs::read_to_string(&cargo_toml) {
-            if contents.contains("[workspace]") {
-                // Workspace projects benefit from a CI script
-                config.scripts.insert(
-                    "ci".into(),
-                    "cargo fmt --check && cargo clippy -- -D warnings && cargo test".into(),
-                );
-            }
-        }
-    }
+    // Default task pipeline: independent checks, then a ci task tying them
+    // together. `rx ci` runs the `ci` task through the task runner.
+    config.tasks.insert(
+        "ci".into(),
+        TaskDef::Full {
+            command: None,
+            depends_on: vec!["fmt".into(), "lint".into(), "test".into(), "build".into()],
+        },
+    );
 
     // Check if common tools are available and configure accordingly
     if std::process::Command::new("mold")

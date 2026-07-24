@@ -3,7 +3,6 @@ mod build;
 mod cache;
 mod cargo_output;
 mod check;
-mod ci;
 mod ci_gen;
 mod cli;
 mod completions;
@@ -15,8 +14,8 @@ mod hints;
 mod lint;
 mod migrate;
 mod output;
-mod script;
 mod stats;
+mod task;
 mod test;
 mod workspace;
 

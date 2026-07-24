@@ -12,7 +12,7 @@ rx init --ci         # also generate .github/workflows/ci.yml
 
 `rx init` inspects your project and applies smart defaults:
 
-- Workspaces get a `ci` script automatically
+- A default `ci` task pipeline (fmt, lint, test, build) is defined
 - If `mold` or `lld` is detected, it is set as the default linker
 - If `cargo-nextest` is installed, the test runner is set to `"auto"`
 
@@ -39,9 +39,11 @@ extra_lints = []           # e.g. ["clippy::pedantic"]
 [fmt]
 extra_args = []
 
-[scripts]
-ci = "cargo fmt --check && cargo clippy -- -D warnings && cargo test"
+[tasks]
 bench = "cargo bench"
+
+[tasks.ci]
+depends-on = ["fmt", "lint", "test", "build"]
 
 [env]
 RUST_BACKTRACE = "1"

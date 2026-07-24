@@ -14,7 +14,7 @@
 
 <p align="center">Fast local CI and task runner for Rust workspaces. Define your pipeline once, run it the same way locally and in CI.</p>
 
-> **Scope note:** rx has been refocused from a "unified toolchain manager" to a fast local-CI and task runner for Rust workspaces. See [PRODUCT.md](PRODUCT.md) for the product definition and explicit non-goals. The ~40 out-of-scope commands (toolchain management, release automation, SBOM, telemetry, plugins, daemon, and other satellites) were removed for 0.2 — use the dedicated tools (rustup, cargo-release, cargo-audit, sccache, …) directly, or invoke them from a configured rx script.
+> **Scope note:** rx has been refocused from a "unified toolchain manager" to a fast local-CI and task runner for Rust workspaces. See [PRODUCT.md](PRODUCT.md) for the product definition and explicit non-goals. The ~40 out-of-scope commands (toolchain management, release automation, SBOM, telemetry, plugins, daemon, and other satellites) were removed for 0.2 — use the dedicated tools (rustup, cargo-release, cargo-audit, sccache, …) directly, or invoke them from a configured rx task.
 
 ## Why
 
@@ -23,18 +23,18 @@ CI failures you could have caught locally waste round-trips, and every project r
 **rx** offers:
 
 - **One-command CI** — `rx ci` runs your full pipeline locally (fmt, clippy, test, build)
-- **Task scripts** — define tasks once in `rx.toml`, run them with `rx script <name>` locally and in CI
+- **Task runner** — define tasks once in `[tasks]` with `depends-on` pipelines; run them with `rx run <task>` locally and in CI, independent tasks run concurrently
 - **Affected-only testing** — `rx test --affected` only tests packages changed since a base ref
 - **Workspace orchestration** — dependency-aware parallel execution across workspace members
 - **Unified commands** — `rx test` uses nextest when available, `rx lint` runs clippy with strict defaults, `rx fmt` runs rustfmt
 - **Fast builds** — auto-detects `mold`/`lld` linkers, caches detection results persistently
 - **CI generation** — `rx init --ci` writes a GitHub/GitLab/Circle pipeline that mirrors your local one
 - **Auto-fix everything** — `rx fix` applies compiler suggestions, clippy fixes, and formatting in one step
-- **Project config** — `rx.toml` with profiles, scripts, env vars, and config validation
+- **Project config** — `rx.toml` with profiles, tasks, env vars, and config validation
 - **Global artifact cache (opt-in)** — content-addressed store with xxHash fingerprinting; disabled by default because its fingerprint does not yet cover all compilation inputs (see PRODUCT.md)
 - **Build stats** — `rx stats show` tracks build time trends across sessions
 - **Actionable errors** — failures include hints on how to fix them (25+ error codes)
-- **Context-aware completions** — workspace members, installed targets, and scripts
+- **Context-aware completions** — workspace members, installed targets, and tasks
 
 ## Install
 
@@ -63,7 +63,7 @@ cargo install --path .
 ### Shell completions
 
 ```sh
-# Bash (includes dynamic completions for workspace members, targets, scripts)
+# Bash (includes dynamic completions for workspace members, targets, tasks)
 rx completions bash >> ~/.bashrc
 
 # Zsh
@@ -94,7 +94,6 @@ rx ci            # run the full pipeline locally
 | `rx config` | Show resolved configuration |
 | `rx build` | Build with fast linker |
 | `rx build --target <triple>` | Cross-compile for a target triple |
-| `rx run [-- args...]` | Build and run (args pass through to binary) |
 | `rx check` | Type-check without building (fast feedback) |
 | `rx test` | Run tests (nextest if available) |
 | `rx test --affected` | Only test packages changed since base ref |
@@ -103,8 +102,9 @@ rx ci            # run the full pipeline locally
 | `rx fix` | Auto-fix everything (compiler + clippy + fmt) |
 | `rx ci` | Run full CI pipeline locally |
 | `rx graph` | Show the workspace dependency graph |
-| `rx script <name>` | Run a script defined in rx.toml |
-| `rx ws list/graph/run/script/exec` | Workspace orchestration |
+| `rx run <task>` | Run a task (built-in or from `[tasks]`), with its dependencies |
+| `rx run` | List available tasks |
+| `rx ws list/graph/run/exec` | Workspace orchestration |
 | `rx cache status/gc/purge` | Manage the global artifact cache |
 | `rx clean` | Clean build artifacts |
 | `rx doctor` | Check your development environment |
@@ -129,7 +129,7 @@ rx --profile ci test          # use CI profile overrides
 
 ## Configuration
 
-Run `rx init` to generate an `rx.toml`. Smart defaults are applied based on your project — workspaces get a `ci` script, and if `mold` is available it's set as the default linker. Unknown keys in `rx.toml` produce a warning so typos don't silently fail.
+Run `rx init` to generate an `rx.toml`. Smart defaults are applied — a `ci` task pipeline is defined, and if `mold` is available it's set as the default linker. Unknown keys in `rx.toml` produce a warning so typos don't silently fail.
 
 Use `rx init --migrate` to auto-detect your project's existing tools (linkers, nextest, Makefiles, benchmarks, error handling crates) and generate a tailored config.
 
@@ -152,9 +152,11 @@ extra_lints = []           # e.g. ["clippy::pedantic"]
 [fmt]
 extra_args = []
 
-[scripts]
-ci = "cargo fmt --check && cargo clippy -- -D warnings && cargo test"
+[tasks]
 bench = "cargo bench"
+
+[tasks.ci]
+depends-on = ["fmt", "lint", "test", "build"]
 
 [env]
 RUST_BACKTRACE = "1"
@@ -176,6 +178,30 @@ Use with `rx --profile ci build`.
 
 Config is resolved by merging `~/.rx/config.toml` (global) with the project's `rx.toml`. Project values override global.
 
+## Tasks
+
+Every pipeline in rx runs through one task executor. A task is a shell command, an rx built-in (`fmt`, `lint`, `test`, `build`, `check`), or a group of dependencies:
+
+```toml
+[tasks]
+bench = "cargo bench"
+
+[tasks.docs]
+command = "cargo doc --no-deps"
+
+[tasks.ci]
+depends-on = ["fmt", "lint", "test", "build"]
+```
+
+```sh
+rx run ci               # run the ci task and its dependency graph
+rx run bench -- --save  # extra args append to the task's command
+rx run                  # list every available task
+rx ci                   # exactly `rx run ci`
+```
+
+Independent tasks in the same dependency wave run **concurrently** (with captured output so they don't interleave). Dependency cycles and unknown task names are rejected with a clear error. As tasks, the built-ins have CI semantics — the `fmt` task *checks* formatting rather than rewriting files (the `rx fmt` command still formats in place). Defining your own task with a built-in's name overrides it. Legacy `[scripts]` entries still work and are treated as tasks without dependencies.
+
 ## Affected-only testing
 
 ```sh
@@ -194,7 +220,6 @@ rx ws list                  # list all workspace members
 rx graph                    # show dependency graph (alias for rx ws graph)
 rx ws run build             # build all members in parallel waves
 rx ws run test --release    # test all members in release mode
-rx ws script ci             # run "ci" script from each member's rx.toml
 rx ws exec "wc -l src/*.rs" # run a shell command in each member directory
 ```
 
@@ -224,7 +249,7 @@ rx (single binary, MSRV 1.85.0)
 ├── workspace/         dependency graph, topo sort (Kahn's), parallel wave execution
 ├── affected/          git-diff-based affected package detection
 ├── ci/ + ci_gen/      local CI pipeline + CI workflow generation
-├── script/            rx.toml script runner
+├── task/              task graph + runner: [tasks], depends-on, concurrency
 ├── completions/       shell completions + context-aware dynamic completions
 ├── output/            colored output, timing, verbosity control
 ├── stats/             build time tracking and statistics

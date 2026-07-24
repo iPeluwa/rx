@@ -201,29 +201,78 @@ fn integration_ci_runs() {
 }
 
 #[test]
-fn integration_script_list() {
+fn integration_run_lists_tasks() {
     let tmp = TempDir::new().unwrap();
-    let project = create_cargo_project(tmp.path(), "scripttest");
+    let project = create_cargo_project(tmp.path(), "tasklisttest");
 
-    // Create rx.toml with scripts
     let rx_toml = project.join("rx.toml");
     fs::write(
         &rx_toml,
-        "[scripts]\ntestscript = \"echo test\"\nbuildscript = \"cargo build\"\n",
+        "[tasks]\nmytask = \"echo test\"\n\n[scripts]\nlegacy = \"echo legacy\"\n",
     )
     .unwrap();
 
-    let output = rx(&project, &["script"]);
+    let output = rx(&project, &["run"]);
     assert!(
         output.status.success(),
-        "rx script failed: {}",
+        "rx run failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("testscript") && stdout.contains("buildscript"),
-        "rx script should list scripts, got: {stdout}"
+        stdout.contains("mytask") && stdout.contains("legacy") && stdout.contains("ci"),
+        "rx run should list user tasks, legacy scripts, and built-ins, got: {stdout}"
     );
+}
+
+#[test]
+fn integration_run_executes_dependency_chain() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "taskchaintest");
+
+    let rx_toml = project.join("rx.toml");
+    fs::write(
+        &rx_toml,
+        "[tasks]\nfirst = \"echo ran-first\"\n\n[tasks.second]\ncommand = \"echo ran-second\"\ndepends-on = [\"first\"]\n",
+    )
+    .unwrap();
+
+    let output = rx(&project, &["run", "second"]);
+    assert!(
+        output.status.success(),
+        "rx run second failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let first_pos = stdout.find("ran-first").expect("dependency did not run");
+    let second_pos = stdout.find("ran-second").expect("task did not run");
+    assert!(first_pos < second_pos, "dependency ran after the task");
+}
+
+#[test]
+fn integration_run_fails_on_unknown_task() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "taskunknowntest");
+
+    let output = rx(&project, &["run", "no-such-task"]);
+    assert!(!output.status.success(), "unknown task should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown task"),
+        "expected unknown-task error, got: {stderr}"
+    );
+}
+
+#[test]
+fn integration_run_failing_task_propagates() {
+    let tmp = TempDir::new().unwrap();
+    let project = create_cargo_project(tmp.path(), "taskfailtest");
+
+    let rx_toml = project.join("rx.toml");
+    fs::write(&rx_toml, "[tasks]\nbad = \"exit 3\"\n").unwrap();
+
+    let output = rx(&project, &["run", "bad"]);
+    assert!(!output.status.success(), "failing task should fail rx run");
 }
 
 #[test]

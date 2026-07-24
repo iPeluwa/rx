@@ -151,10 +151,10 @@ fn installed_targets() -> Vec<String> {
     }
 }
 
-/// Discover scripts from rx.toml for dynamic completion.
-fn available_scripts() -> Vec<String> {
+/// Discover tasks from rx.toml for dynamic completion.
+fn available_tasks() -> Vec<String> {
     match crate::config::load() {
-        Ok(config) => config.scripts.keys().cloned().collect(),
+        Ok(config) => config.resolved_tasks().keys().cloned().collect(),
         Err(_) => vec![],
     }
 }
@@ -162,7 +162,7 @@ fn available_scripts() -> Vec<String> {
 fn emit_bash_dynamic_completions() -> Result<()> {
     let members = workspace_members();
     let targets = installed_targets();
-    let scripts = available_scripts();
+    let tasks = available_tasks();
 
     println!();
     println!("# rx dynamic completions");
@@ -191,11 +191,11 @@ fn emit_bash_dynamic_completions() -> Result<()> {
         println!("  fi");
     }
 
-    if !scripts.is_empty() {
-        println!("  if [[ \"${{COMP_WORDS[1]}}\" == \"script\" ]]; then");
+    if !tasks.is_empty() {
+        println!("  if [[ \"${{COMP_WORDS[1]}}\" == \"run\" ]]; then");
         println!(
             "    COMPREPLY=( $(compgen -W \"{}\" -- \"$cur\") )",
-            scripts.join(" ")
+            tasks.join(" ")
         );
         println!("    return");
         println!("  fi");
@@ -211,7 +211,7 @@ fn emit_bash_dynamic_completions_to_buffer(buffer: &mut Vec<u8>) -> Result<()> {
     use std::io::Write;
     let members = workspace_members();
     let targets = installed_targets();
-    let scripts = available_scripts();
+    let tasks = available_tasks();
 
     writeln!(buffer)?;
     writeln!(buffer, "# rx dynamic completions")?;
@@ -245,15 +245,12 @@ fn emit_bash_dynamic_completions_to_buffer(buffer: &mut Vec<u8>) -> Result<()> {
         writeln!(buffer, "  fi")?;
     }
 
-    if !scripts.is_empty() {
-        writeln!(
-            buffer,
-            "  if [[ \"${{COMP_WORDS[1]}}\" == \"script\" ]]; then"
-        )?;
+    if !tasks.is_empty() {
+        writeln!(buffer, "  if [[ \"${{COMP_WORDS[1]}}\" == \"run\" ]]; then")?;
         writeln!(
             buffer,
             "    COMPREPLY=( $(compgen -W \"{}\" -- \"$cur\") )",
-            scripts.join(" ")
+            tasks.join(" ")
         )?;
         writeln!(buffer, "    return")?;
         writeln!(buffer, "  fi")?;
@@ -268,7 +265,7 @@ fn emit_bash_dynamic_completions_to_buffer(buffer: &mut Vec<u8>) -> Result<()> {
 fn emit_zsh_dynamic_completions() -> Result<()> {
     let members = workspace_members();
     let targets = installed_targets();
-    let scripts = available_scripts();
+    let tasks = available_tasks();
 
     println!();
     println!("# rx dynamic completions for zsh");
@@ -279,8 +276,8 @@ fn emit_zsh_dynamic_completions() -> Result<()> {
     if !targets.is_empty() {
         println!("_rx_targets=({})", targets.join(" "));
     }
-    if !scripts.is_empty() {
-        println!("_rx_scripts=({})", scripts.join(" "));
+    if !tasks.is_empty() {
+        println!("_rx_tasks=({})", tasks.join(" "));
     }
 
     Ok(())
@@ -290,7 +287,7 @@ fn emit_zsh_dynamic_completions_to_buffer(buffer: &mut Vec<u8>) -> Result<()> {
     use std::io::Write;
     let members = workspace_members();
     let targets = installed_targets();
-    let scripts = available_scripts();
+    let tasks = available_tasks();
 
     writeln!(buffer)?;
     writeln!(buffer, "# rx dynamic completions for zsh")?;
@@ -301,8 +298,8 @@ fn emit_zsh_dynamic_completions_to_buffer(buffer: &mut Vec<u8>) -> Result<()> {
     if !targets.is_empty() {
         writeln!(buffer, "_rx_targets=({})", targets.join(" "))?;
     }
-    if !scripts.is_empty() {
-        writeln!(buffer, "_rx_scripts=({})", scripts.join(" "))?;
+    if !tasks.is_empty() {
+        writeln!(buffer, "_rx_tasks=({})", tasks.join(" "))?;
     }
 
     Ok(())
@@ -311,7 +308,7 @@ fn emit_zsh_dynamic_completions_to_buffer(buffer: &mut Vec<u8>) -> Result<()> {
 fn emit_fish_dynamic_completions() -> Result<()> {
     let members = workspace_members();
     let targets = installed_targets();
-    let scripts = available_scripts();
+    let tasks = available_tasks();
 
     println!();
     println!("# rx dynamic completions for fish");
@@ -326,8 +323,8 @@ fn emit_fish_dynamic_completions() -> Result<()> {
         println!("complete -c rx -n '__fish_seen_subcommand_from build' -l target -xa '{target}'");
     }
 
-    for script in &scripts {
-        println!("complete -c rx -n '__fish_seen_subcommand_from script' -xa '{script}'");
+    for task in &tasks {
+        println!("complete -c rx -n '__fish_seen_subcommand_from run' -xa '{task}'");
     }
 
     Ok(())
@@ -337,7 +334,7 @@ fn emit_fish_dynamic_completions_to_buffer(buffer: &mut Vec<u8>) -> Result<()> {
     use std::io::Write;
     let members = workspace_members();
     let targets = installed_targets();
-    let scripts = available_scripts();
+    let tasks = available_tasks();
 
     writeln!(buffer)?;
     writeln!(buffer, "# rx dynamic completions for fish")?;
@@ -356,10 +353,10 @@ fn emit_fish_dynamic_completions_to_buffer(buffer: &mut Vec<u8>) -> Result<()> {
         )?;
     }
 
-    for script in &scripts {
+    for task in &tasks {
         writeln!(
             buffer,
-            "complete -c rx -n '__fish_seen_subcommand_from script' -xa '{script}'"
+            "complete -c rx -n '__fish_seen_subcommand_from run' -xa '{task}'"
         )?;
     }
 

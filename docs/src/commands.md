@@ -40,8 +40,9 @@ rx has a deliberately small command surface. All commands support the global fla
 
 | Command | Description |
 |---------|-------------|
-| `rx script <name>` | Run a script defined in rx.toml |
-| `rx script` | List available scripts |
+| `rx run <task>` | Run a task and its `depends-on` graph (built-ins: fmt, lint, test, build, check, ci) |
+| `rx run <task> -- <args>` | Append extra args to the task's shell command |
+| `rx run` | List available tasks |
 
 ## Workspace
 
@@ -50,7 +51,6 @@ rx has a deliberately small command surface. All commands support the global fla
 | `rx graph` | Show the workspace dependency graph |
 | `rx ws list` | List all workspace members |
 | `rx ws run <cmd>` | Run a cargo command across members in dependency order |
-| `rx ws script <name>` | Run an rx.toml script across members |
 | `rx ws exec <cmd>` | Run a shell command in each member directory |
 
 ## Maintenance
@@ -64,4 +64,4 @@ rx has a deliberately small command surface. All commands support the global fla
 
 ## Removed commands
 
-The 0.2 scope reset removed the toolchain-manager surface (`new`, `pkg`, `toolchain`, `release`, `publish`, `audit`, `outdated`, `tree`, `deps`, `doc`, `size`, `bloat`, `coverage`, `bench`, `expand`, `compat`, `upgrade`, `self-update`, `sbom`, `telemetry`, `plugin`, `registry`, `lockfile`, `env`, `insights`, `explain`, `manpage`, `sandbox`, `watch`, `daemon`, `worker`, `test-smart`, `test-advanced`). Use the dedicated tools directly (rustup, cargo and its plugins, sccache, cargo-release, …) or invoke them from a configured rx script. See [PRODUCT.md](https://github.com/iPeluwa/rx/blob/master/PRODUCT.md) for the reasoning.
+The 0.2 scope reset removed the toolchain-manager surface (`new`, `pkg`, `toolchain`, `release`, `publish`, `audit`, `outdated`, `tree`, `deps`, `doc`, `size`, `bloat`, `coverage`, `bench`, `expand`, `compat`, `upgrade`, `self-update`, `sbom`, `telemetry`, `plugin`, `registry`, `lockfile`, `env`, `insights`, `explain`, `manpage`, `sandbox`, `watch`, `daemon`, `worker`, `test-smart`, `test-advanced`). `rx script` was folded into `rx run`, and `rx run` no longer builds-and-executes your binary — use `cargo run` or define a task. Use the dedicated tools directly (rustup, cargo and its plugins, sccache, cargo-release, …) or invoke them from a configured rx task. See [PRODUCT.md](https://github.com/iPeluwa/rx/blob/master/PRODUCT.md) for the reasoning.
