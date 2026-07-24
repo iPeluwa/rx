@@ -9,7 +9,6 @@ How rx compares to other Rust build tools and task runners.
 | Build, test, fmt, clippy | Yes (separate commands) | Yes (unified + `rx ci`) |
 | Global artifact cache | No | Yes (content-addressed, xxHash) |
 | Remote shared cache | No | Yes (S3, GCS, local path) |
-| Semantic fingerprinting | No | Yes (only rebuild on API changes) |
 | Fast linker detection | No | Yes (auto-detects mold/lld) |
 | Workspace parallel waves | Basic | Dependency-aware with event-driven scheduler |
 | Smart test ordering | No | Yes (failure-first, flaky detection) |
@@ -64,7 +63,7 @@ rx wraps Cargo — it doesn't replace it. Every rx command runs standard Cargo u
 | Feature | sccache | rx |
 |---------|----------|----|
 | Scope | Compilation cache only | Full toolchain manager + cache |
-| Cache granularity | Per-compilation-unit | Per-crate with semantic fingerprinting |
+| Cache granularity | Per-compilation-unit | Per-crate (opt-in) |
 | Remote backends | S3, GCS, Azure, Redis | S3, GCS, local path |
 | Additional features | None | 50+ commands, workspace orchestration, etc. |
 

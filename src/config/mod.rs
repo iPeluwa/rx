@@ -58,7 +58,10 @@ pub struct BuildConfig {
     pub linker: String,
     /// Extra RUSTFLAGS to append
     pub rustflags: Vec<String>,
-    /// Enable the global artifact cache
+    /// Enable the global artifact cache (opt-in). The cache fingerprint does
+    /// not yet cover all compilation inputs (target triple, features,
+    /// toolchain version, build scripts, environment), so it is disabled by
+    /// default. See PRODUCT.md.
     pub cache: bool,
     /// Default number of parallel jobs (0 = auto)
     pub jobs: u32,
@@ -74,7 +77,7 @@ impl Default for BuildConfig {
         Self {
             linker: "auto".into(),
             rustflags: vec![],
-            cache: true,
+            cache: false,
             jobs: 0,
             incremental_link: true,
             remote_cache: String::new(),
@@ -188,7 +191,8 @@ pub fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
             } else {
                 project.build.rustflags
             },
-            cache: project.build.cache && global.build.cache,
+            // Cache is opt-in (default false): enabled if either level opts in.
+            cache: project.build.cache || global.build.cache,
             jobs: if project.build.jobs > 0 {
                 project.build.jobs
             } else {

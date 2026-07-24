@@ -5,7 +5,6 @@ rx includes several advanced features for optimizing builds, improving test reli
 ## Build optimization
 
 - [Remote Cache](./advanced/remote-cache.md) -- share build artifacts across CI runners and developers via S3, GCS, or a shared path
-- [Semantic Fingerprinting](./advanced/semantic-fingerprint.md) -- skip downstream rebuilds when only private code changes
 - [Build Sandbox](./advanced/sandbox.md) -- detect undeclared dependencies with isolated builds
 
 ## Test orchestration

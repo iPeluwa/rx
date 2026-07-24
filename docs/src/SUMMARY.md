@@ -20,7 +20,6 @@
   - [Build Sandbox](./advanced/sandbox.md)
   - [Background Daemon](./advanced/daemon.md)
   - [Persistent Workers](./advanced/workers.md)
-  - [Semantic Fingerprinting](./advanced/semantic-fingerprint.md)
   - [Private Registries](./advanced/registries.md)
   - [Lockfile Policy](./advanced/lockfile.md)
   - [Telemetry](./advanced/telemetry.md)

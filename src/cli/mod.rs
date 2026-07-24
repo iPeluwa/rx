@@ -3,7 +3,11 @@ use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 
 #[derive(Parser)]
-#[command(name = "rx", version, about = "A fast, unified Rust toolchain manager")]
+#[command(
+    name = "rx",
+    version,
+    about = "Fast local CI and task runner for Rust workspaces"
+)]
 pub struct Cli {
     /// Suppress non-error output
     #[arg(long, short, global = true)]
@@ -876,7 +880,9 @@ pub fn dispatch(cli: Cli) -> Result<()> {
                         // Speculative check failed — fall through to normal check
                         // to get proper error output
                     } else {
-                        crate::output::verbose("custom RUSTFLAGS detected, discarding speculative check");
+                        crate::output::verbose(
+                            "custom RUSTFLAGS detected, discarding speculative check",
+                        );
                         checker.cancel();
                     }
                 }

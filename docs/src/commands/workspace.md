@@ -60,10 +60,6 @@ rx ws exec "echo \$PWD"         # show each member's directory
 
 `rx ws exec` runs an arbitrary shell command in each member's directory. Unlike `rx ws run`, this does not use dependency ordering -- commands run in parallel across all members.
 
-## Semantic fingerprinting in workspaces
-
-When running workspace commands, rx uses [semantic fingerprinting](../advanced/semantic-fingerprint.md) to skip rebuilding members whose public API has not changed. If `core` only had a comment edit, downstream packages like `api` and `cli` are not rebuilt.
-
 ## Example workflow
 
 A typical CI setup for a workspace:

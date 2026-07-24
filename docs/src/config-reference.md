@@ -6,7 +6,7 @@
 |---|---|---|---|
 | `linker` | string | `"auto"` | Linker to use: `"auto"`, `"mold"`, `"lld"`, or `"system"` |
 | `rustflags` | string[] | `[]` | Extra RUSTFLAGS to append |
-| `cache` | bool | `true` | Enable the global artifact cache |
+| `cache` | bool | `false` | Enable the global artifact cache (opt-in; fingerprint does not yet cover target triple, features, toolchain, or build scripts — see PRODUCT.md) |
 | `jobs` | u32 | `0` | Parallel jobs (0 = auto-detect CPU count) |
 | `incremental_link` | bool | `true` | Enable incremental linking (split-debuginfo, --as-needed) |
 | `remote_cache` | string | `""` | Remote cache URL: `"s3://bucket/prefix"`, `"gs://bucket/prefix"`, or `"/path"` |

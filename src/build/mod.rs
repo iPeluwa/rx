@@ -235,8 +235,14 @@ pub fn build(
     let flags = build_rustflags(config);
     let flags_str = flags.as_deref();
 
-    // Check cache if enabled
-    if config.build.cache {
+    // The artifact cache fingerprint does not include package selection or
+    // target triple, so the cache must never answer those builds.
+    let cache_usable = config.build.cache && package.is_none() && target.is_none();
+    if config.build.cache && !cache_usable {
+        crate::output::verbose("artifact cache skipped: --package/--target not fingerprinted");
+    }
+
+    if cache_usable {
         let fingerprint = cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
 
         if let Some(cached) = cache::lookup_build(&fingerprint)? {
@@ -316,7 +322,7 @@ pub fn build(
     }
 
     // Store in cache
-    if config.build.cache {
+    if cache_usable {
         let fingerprint = cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
         let target_dir = project_root.join("target");
         let artifacts = collect_artifacts(&target_dir, profile)?;

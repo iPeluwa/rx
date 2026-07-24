@@ -11,7 +11,7 @@ fn default_config_round_trips() {
     let deserialized: rx::config::RxConfig = toml::from_str(&serialized).unwrap();
 
     assert_eq!(deserialized.build.linker, "auto");
-    assert!(deserialized.build.cache);
+    assert!(!deserialized.build.cache); // opt-in, off by default
     assert_eq!(deserialized.build.jobs, 0);
     assert!(deserialized.build.rustflags.is_empty());
     assert_eq!(deserialized.test.runner, "auto");
@@ -34,7 +34,7 @@ ci = "cargo test"
     let config: rx::config::RxConfig = toml::from_str(toml_str).unwrap();
     assert_eq!(config.build.linker, "mold");
     assert_eq!(config.build.jobs, 8);
-    assert!(config.build.cache); // default
+    assert!(!config.build.cache); // opt-in, off by default
     assert_eq!(config.scripts.get("ci").unwrap(), "cargo test");
     assert_eq!(config.test.runner, "auto"); // default
 }
@@ -128,7 +128,7 @@ fn merge_project_overrides_global() {
     assert_eq!(merged.build.linker, "lld");
     // Project rustflags empty -> falls back to global
     assert_eq!(merged.build.rustflags, vec!["-Copt-level=2"]);
-    // Both true -> true
+    // Global opted in -> enabled
     assert!(merged.build.cache);
     // Project jobs non-zero -> overrides
     assert_eq!(merged.build.jobs, 4);
@@ -208,7 +208,7 @@ fn load_for_dir_missing_file_returns_defaults() {
     let dir = TempDir::new().unwrap();
     let config = rx::config::load_for_dir(dir.path()).unwrap();
     assert_eq!(config.build.linker, "auto");
-    assert!(config.build.cache);
+    assert!(!config.build.cache);
 }
 
 #[test]
@@ -220,6 +220,6 @@ fn init_config_creates_valid_file() {
     assert!(path.exists());
     let config = rx::config::load_from_path(&path).unwrap();
     assert_eq!(config.build.linker, "auto");
-    assert!(config.build.cache);
+    assert!(!config.build.cache);
     assert_eq!(config.test.runner, "auto");
 }
