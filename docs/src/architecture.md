@@ -9,37 +9,18 @@ rx
 ├── cli/               CLI definition (clap derive), lazy config loading, profiles
 ├── config/            rx.toml parsing, global/project merge, profile resolution, validation
 ├── build/             cargo build orchestration, fast linker, cross-compilation
-├── cache/             Content-addressed artifact store (xxHash, atomic writes, reflink)
-├── remote_cache/      S3/GCS/local shared cache backend
-├── pipeline/          Pipelined workspace builds (check + build overlap)
+├── cache/             Opt-in content-addressed artifact store (xxHash, atomic writes, reflink)
 ├── cargo_output/      Cargo JSON output parser with error hints
 ├── workspace/         Dependency graph, topological sort (Kahn's), parallel waves
-├── daemon/            Background daemon with Unix socket IPC
-├── worker/            Persistent warm check/fmt/lint processes
-├── output/            Colored output, progress spinners, timing, verbosity
-├── watch/             Native file watcher (notify crate), smart filtering
-├── completions/       Shell completions with context-aware dynamic values
-├── templates/         Project templates (axum, cli, wasm, lib)
-├── release/           Version bumping, commit, tag, push automation
-├── coverage/          Code coverage (cargo-llvm-cov / tarpaulin)
 ├── affected/          Git-diff-based affected package detection
-├── test_orchestrator/ Smart test ordering, sharding, flaky detection
-├── compat/            MSRV compatibility checking
-├── sandbox/           Isolated builds (env-stripped)
-├── registry/          Private crate registry configuration and auth
-├── lockfile/          Lockfile health checking and CI enforcement
-├── telemetry/         Opt-in anonymous usage analytics (local only)
+├── ci/ + ci_gen/      Local CI pipeline and CI workflow generation
 ├── script/            rx.toml script runner
+├── completions/       Shell completions with context-aware dynamic values
+├── output/            Colored output, timing, verbosity
 ├── stats/             Build time tracking and statistics
-├── env/               Environment variable management
-├── plugin/            Plugin discovery and execution (~/.rx/plugins/)
+├── hints/             Error code hints surfaced next to cargo output
 ├── migrate/           Auto-detection of existing project settings
-├── deps/              Dependency health dashboard
-├── bloat/             Binary bloat analysis
-├── hints/             25+ error code explanations with practical fixes
-├── doc/               Documentation builder
-├── sbom/              SPDX and CycloneDX bill of materials
-├── test_advanced/     Snapshot, fuzz, and mutation testing
+├── doctor/            Development environment checks
 └── install.sh         Self-installer script
 ```
 
@@ -49,7 +30,7 @@ rx
 2. **Config loading** (lazy) -- if the command needs configuration, rx loads `~/.rx/config.toml` and `./rx.toml`, merges them (project overrides global), and applies the active profile.
 3. **Environment setup** -- environment variables from `[env]` are set. The cached env at `~/.rx/env.lock` provides linker paths and toolchain info.
 4. **Command execution** -- the command module runs, calling cargo or other tools as subprocesses. Output is parsed from cargo's JSON stream for error hints and progress display.
-5. **Cache update** -- if caching is enabled, the fingerprint and artifacts are stored in `~/.rx/cache`.
+5. **Cache update** -- if the opt-in artifact cache is enabled, the fingerprint and artifacts are stored in `~/.rx/cache`.
 
 ## Config resolution
 
@@ -100,6 +81,4 @@ rx wraps all errors with context using `anyhow`. Every user-facing error include
 
 - A clear description of what went wrong
 - The underlying cause (if available)
-- A hint on how to fix it (25+ error codes with practical explanations)
-
-Run `rx explain <code>` to get a detailed explanation of any error code.
+- A hint on how to fix it (common error codes get one-line practical hints next to cargo output)

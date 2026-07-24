@@ -7,31 +7,25 @@ How rx compares to other Rust build tools and task runners.
 | Feature | Cargo | rx |
 |---------|-------|----|
 | Build, test, fmt, clippy | Yes (separate commands) | Yes (unified + `rx ci`) |
-| Global artifact cache | No | Yes (content-addressed, xxHash) |
-| Remote shared cache | No | Yes (S3, GCS, local path) |
+| One-command local CI | No | `rx ci` |
+| Affected-package detection | No | `rx test --affected` |
+| Workspace task orchestration | Basic (`--workspace`) | Dependency-aware parallel waves |
 | Fast linker detection | No | Yes (auto-detects mold/lld) |
-| Workspace parallel waves | Basic | Dependency-aware with event-driven scheduler |
-| Smart test ordering | No | Yes (failure-first, flaky detection) |
-| Project templates | `cargo init` | `rx new --template axum/cli/wasm/lib` |
 | Config file | Cargo.toml only | rx.toml with profiles, scripts, env |
-| Background daemon | No | Yes (Unix socket IPC) |
 | Shell completions | No | Yes (bash, zsh, fish, PowerShell) |
-| MSRV verification | No | `rx compat` |
-| SBOM generation | No | `rx sbom` (SPDX, CycloneDX) |
 
-rx wraps Cargo — it doesn't replace it. Every rx command runs standard Cargo under the hood.
+rx wraps Cargo — it doesn't replace it. Every rx command runs standard Cargo under the hood, and Cargo owns compilation scheduling and `target/`.
 
 ## rx vs cargo-make
 
-[cargo-make](https://github.com/nickel-org/cargo-make) is a task runner with a Makefile.toml format.
+[cargo-make](https://github.com/sagiegurari/cargo-make) is a task runner with a Makefile.toml format.
 
 | Feature | cargo-make | rx |
 |---------|------------|----|
 | Task definitions | Makefile.toml (verbose) | rx.toml `[scripts]` (concise) |
-| Built-in Rust commands | No (shell tasks) | Yes (build, test, lint, fmt, etc.) |
-| Caching | No | Global + remote cache |
+| Built-in Rust commands | No (shell tasks) | Yes (build, test, lint, fmt, ci) |
 | Workspace awareness | Plugin-based | Built-in with parallel waves |
-| Installation | `cargo install cargo-make` | Single binary, no Cargo needed |
+| Affected-package detection | No | Built-in |
 
 ## rx vs just
 
@@ -39,10 +33,9 @@ rx wraps Cargo — it doesn't replace it. Every rx command runs standard Cargo u
 
 | Feature | just | rx |
 |---------|------|----|
-| Purpose | General task runner | Rust-specific toolchain manager |
-| Rust integration | None (runs shell commands) | Deep (understands Cargo, workspaces, targets) |
-| Caching | No | Content-addressed artifact cache |
-| Build optimization | No | Linker detection, PGO, pipelining |
+| Purpose | General task runner | Rust-specific local CI / task runner |
+| Rust integration | None (runs shell commands) | Deep (understands Cargo workspaces) |
+| Affected-package detection | No | Built-in |
 | Config | justfile | rx.toml |
 
 ## rx vs cargo-xtask
@@ -53,22 +46,12 @@ rx wraps Cargo — it doesn't replace it. Every rx command runs standard Cargo u
 |---------|-------------|----|
 | Setup | Write Rust code per-project | Zero config, works out of the box |
 | Maintenance | You maintain the xtask crate | rx maintains the tooling |
-| Caching | No | Built-in |
 | Cross-project reuse | Copy-paste | Same rx binary everywhere |
 
 ## rx vs sccache
 
-[sccache](https://github.com/mozilla/sccache) is a shared compilation cache.
-
-| Feature | sccache | rx |
-|---------|----------|----|
-| Scope | Compilation cache only | Full toolchain manager + cache |
-| Cache granularity | Per-compilation-unit | Per-crate (opt-in) |
-| Remote backends | S3, GCS, Azure, Redis | S3, GCS, local path |
-| Additional features | None | 50+ commands, workspace orchestration, etc. |
-
-rx and sccache can be used together — they operate at different levels.
+[sccache](https://github.com/mozilla/sccache) is a shared compilation cache. They are complementary, not competing: rx orchestrates tasks; sccache caches compilation. The Cargo documentation recommends sccache for sharing compiled dependencies, and rx defers compiler-level caching to it.
 
 ## Summary
 
-Use **rx** if you want a single tool that handles your entire Rust development workflow with built-in caching, smart builds, and zero configuration. Use the other tools if you need a general-purpose task runner (just, cargo-make) or only need compilation caching (sccache).
+Use **rx** if you want your CI pipeline to be defined once and runnable identically on your machine and in CI, with workspace-aware task execution and affected-package detection. Use a general-purpose task runner (just, cargo-make) if your tasks aren't Rust-shaped, and sccache for compilation caching either way.

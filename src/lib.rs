@@ -1,7 +1,4 @@
 pub mod affected;
-pub mod audit;
-pub mod bench;
-pub mod bloat;
 pub mod build;
 pub mod cache;
 pub mod cargo_output;
@@ -9,52 +6,16 @@ pub mod check;
 pub mod ci;
 pub mod ci_gen;
 pub mod cli;
-pub mod compat;
 pub mod completions;
 pub mod config;
-pub mod coverage;
-pub mod daemon;
-pub mod deps;
-pub mod doc;
 pub mod doctor;
-pub mod env;
-pub mod expand;
 pub mod fix;
 pub mod fmt;
 pub mod hints;
-pub mod insights;
 pub mod lint;
-pub mod lockfile;
 pub mod migrate;
-pub mod outdated;
 pub mod output;
-pub mod pipeline;
-pub mod pkg;
-pub mod plugin;
-pub mod publish;
-pub mod registry;
-pub mod release;
-#[allow(dead_code)]
-pub mod remote_cache;
-#[allow(dead_code)]
-pub mod sandbox;
-pub mod sbom;
 pub mod script;
-pub mod selfupdate;
-pub mod size;
-pub mod speculative;
 pub mod stats;
-#[allow(dead_code)]
-pub mod telemetry;
-pub mod templates;
 pub mod test;
-pub mod test_advanced;
-#[allow(dead_code)]
-pub mod test_orchestrator;
-pub mod toolchain;
-pub mod tree;
-pub mod upgrade;
-pub mod watch;
-#[allow(dead_code)]
-pub mod worker;
 pub mod workspace;

@@ -16,7 +16,6 @@ fn default_config_round_trips() {
     assert!(deserialized.build.rustflags.is_empty());
     assert_eq!(deserialized.test.runner, "auto");
     assert_eq!(deserialized.lint.severity, "deny");
-    assert_eq!(deserialized.watch.cmd, "build");
     assert!(deserialized.scripts.is_empty());
     assert!(deserialized.env.is_empty());
 }
@@ -59,10 +58,6 @@ extra_lints = ["clippy::pedantic"]
 [fmt]
 extra_args = ["--edition", "2021"]
 
-[watch]
-cmd = "check"
-ignore = ["*.md"]
-
 [scripts]
 ci = "cargo fmt --check && cargo test"
 bench = "cargo bench"
@@ -81,8 +76,6 @@ RUST_LOG = "debug"
     assert_eq!(config.lint.severity, "warn");
     assert_eq!(config.lint.extra_lints, vec!["clippy::pedantic"]);
     assert_eq!(config.fmt.extra_args, vec!["--edition", "2021"]);
-    assert_eq!(config.watch.cmd, "check");
-    assert_eq!(config.watch.ignore, vec!["*.md"]);
     assert_eq!(config.scripts.len(), 2);
     assert_eq!(config.env.get("RUST_BACKTRACE").unwrap(), "1");
 }
@@ -96,7 +89,6 @@ fn merge_project_overrides_global() {
             cache: true,
             jobs: 8,
             incremental_link: true,
-            remote_cache: String::new(),
         },
         test: rx::config::TestConfig {
             runner: "nextest".into(),

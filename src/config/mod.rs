@@ -15,7 +15,6 @@ pub struct RxConfig {
     pub test: TestConfig,
     pub lint: LintConfig,
     pub fmt: FmtConfig,
-    pub watch: WatchConfig,
     pub scripts: HashMap<String, String>,
     pub env: HashMap<String, String>,
     #[serde(rename = "profile")]
@@ -67,9 +66,6 @@ pub struct BuildConfig {
     pub jobs: u32,
     /// Enable incremental linking optimizations (split-debuginfo, --as-needed)
     pub incremental_link: bool,
-    /// Remote cache URL: s3://bucket/prefix, gs://bucket/prefix, or /path
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub remote_cache: String,
 }
 
 impl Default for BuildConfig {
@@ -80,7 +76,6 @@ impl Default for BuildConfig {
             cache: false,
             jobs: 0,
             incremental_link: true,
-            remote_cache: String::new(),
         }
     }
 }
@@ -126,24 +121,6 @@ impl Default for LintConfig {
 pub struct FmtConfig {
     /// Extra rustfmt arguments
     pub extra_args: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(default)]
-pub struct WatchConfig {
-    /// Default command to run on file changes
-    pub cmd: String,
-    /// File patterns to ignore
-    pub ignore: Vec<String>,
-}
-
-impl Default for WatchConfig {
-    fn default() -> Self {
-        Self {
-            cmd: "build".into(),
-            ignore: vec![],
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -199,11 +176,6 @@ pub fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
                 global.build.jobs
             },
             incremental_link: project.build.incremental_link && global.build.incremental_link,
-            remote_cache: if !project.build.remote_cache.is_empty() {
-                project.build.remote_cache
-            } else {
-                global.build.remote_cache
-            },
         },
         test: TestConfig {
             runner: if project.test.runner != "auto" {
@@ -236,18 +208,6 @@ pub fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
                 project.fmt.extra_args
             },
         },
-        watch: WatchConfig {
-            cmd: if project.watch.cmd != "build" {
-                project.watch.cmd
-            } else {
-                global.watch.cmd
-            },
-            ignore: {
-                let mut patterns = global.watch.ignore;
-                patterns.extend(project.watch.ignore);
-                patterns
-            },
-        },
         scripts: {
             let mut scripts = global.scripts;
             scripts.extend(project.scripts);
@@ -266,9 +226,7 @@ pub fn merge(global: RxConfig, project: RxConfig) -> RxConfig {
     }
 }
 
-const KNOWN_TOP_KEYS: &[&str] = &[
-    "build", "test", "lint", "fmt", "watch", "scripts", "env", "profile",
-];
+const KNOWN_TOP_KEYS: &[&str] = &["build", "test", "lint", "fmt", "scripts", "env", "profile"];
 
 /// Warn about unknown top-level keys in a config file.
 fn warn_unknown_keys(path: &Path) {

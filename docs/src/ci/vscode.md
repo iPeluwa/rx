@@ -31,10 +31,6 @@ The extension provides 15 commands accessible from the Command Palette (Ctrl+Shi
 | `rx: Run CI` | Run `rx ci` |
 | `rx: Clean` | Run `rx clean` |
 | `rx: Doctor` | Run `rx doctor` |
-| `rx: Insights` | Run `rx insights` |
-| `rx: Dependencies` | Run `rx deps` |
-| `rx: Coverage` | Run `rx coverage` |
-| `rx: Watch` | Run `rx watch` |
 | `rx: Run` | Run `rx run` |
 
 ## Task provider

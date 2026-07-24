@@ -27,7 +27,6 @@ rustflags = []             # extra RUSTFLAGS
 cache = false              # opt-in global artifact cache (see PRODUCT.md)
 jobs = 0                   # parallel jobs (0 = auto-detect CPU count)
 incremental_link = true    # split-debuginfo and --as-needed
-remote_cache = ""          # "s3://bucket/prefix", "gs://bucket/prefix", or "/path"
 
 [test]
 runner = "auto"            # "auto", "nextest", or "cargo"
@@ -39,10 +38,6 @@ extra_lints = []           # e.g. ["clippy::pedantic"]
 
 [fmt]
 extra_args = []
-
-[watch]
-cmd = "build"              # default command on file changes
-ignore = []                # patterns to ignore, e.g. ["*.log", "tmp/**"]
 
 [scripts]
 ci = "cargo fmt --check && cargo clippy -- -D warnings && cargo test"
@@ -83,13 +78,6 @@ The `[env]` section sets environment variables for all rx commands:
 [env]
 RUST_BACKTRACE = "1"
 RUST_LOG = "info"
-```
-
-You can also manage env vars with the `rx env` command:
-
-```sh
-rx env show     # display resolved environment variables
-rx env shell    # print export statements for your shell
 ```
 
 ## Profiles

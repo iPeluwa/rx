@@ -38,13 +38,14 @@ rx build --target x86_64-pc-windows-msvc
 rx passes the `--target` flag through to cargo. Ensure the target is installed:
 
 ```sh
-rx toolchain install stable
 rustup target add aarch64-unknown-linux-gnu
 ```
 
+Note: cross-compiled builds always invoke cargo directly — the artifact cache never answers `--target` or `--package` builds.
+
 ## Caching
 
-When `cache = true` (the default), rx maintains a global content-addressed cache at `~/.rx/cache`:
+When `cache = true` (opt-in, off by default — see PRODUCT.md), rx maintains a global content-addressed cache at `~/.rx/cache`:
 
 1. **Mtime check** -- if no source file has changed, skip everything
 2. **Fingerprint** -- compute xxh3-128 hash of sources, Cargo.toml, Cargo.lock, profile, and RUSTFLAGS
