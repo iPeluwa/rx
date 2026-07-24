@@ -24,7 +24,7 @@ rx init --ci         # also generate .github/workflows/ci.yml
 [build]
 linker = "auto"            # "auto", "mold", "lld", or "system"
 rustflags = []             # extra RUSTFLAGS
-cache = true               # enable global artifact cache
+cache = false              # opt-in global artifact cache (see PRODUCT.md)
 jobs = 0                   # parallel jobs (0 = auto-detect CPU count)
 incremental_link = true    # split-debuginfo and --as-needed
 remote_cache = ""          # "s3://bucket/prefix", "gs://bucket/prefix", or "/path"

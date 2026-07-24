@@ -349,43 +349,6 @@ pub fn compute_build_fingerprint(
     Ok(fingerprint)
 }
 
-/// Compute a semantic fingerprint that only changes when the public API changes.
-/// This is useful for workspace builds: if an upstream crate's public API hasn't
-/// changed, downstream crates don't need to rebuild even if the upstream's
-/// implementation changed.
-pub fn compute_semantic_fingerprint(project_root: &Path) -> Result<String> {
-    let mut buf = Vec::new();
-
-    let cargo_toml = project_root.join("Cargo.toml");
-    if cargo_toml.exists() {
-        buf.extend_from_slice(&fs::read(&cargo_toml)?);
-    }
-    buf.push(0);
-
-    let src_dir = project_root.join("src");
-    if src_dir.exists() {
-        let mut rs_files: Vec<PathBuf> = WalkDir::new(&src_dir)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "rs"))
-            .map(|e| e.into_path())
-            .collect();
-        rs_files.sort();
-
-        for file in &rs_files {
-            let rel = file.strip_prefix(project_root).unwrap_or(file);
-            buf.extend_from_slice(rel.to_string_lossy().as_bytes());
-            buf.push(0);
-            // Use semantic hash (public API only) instead of full content
-            let hash = crate::semantic_hash::semantic_hash_file(file);
-            buf.extend_from_slice(&hash.to_le_bytes());
-            buf.push(0);
-        }
-    }
-
-    Ok(format!("{:032x}", xxh3_128(&buf)))
-}
-
 /// Directory where cached build outputs for a given fingerprint are stored.
 fn build_cache_dir(fingerprint: &str) -> Result<PathBuf> {
     Ok(cache_dir()?

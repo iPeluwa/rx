@@ -19,35 +19,6 @@ fn bench_xxhash_fingerprint() {
     );
 }
 
-fn bench_semantic_hash() {
-    let source = r#"
-pub fn hello(name: &str) -> String {
-    format!("hello {name}")
-}
-
-pub struct Config {
-    pub name: String,
-    pub value: u64,
-}
-
-pub trait Service {
-    fn run(&self) -> Result<(), Box<dyn std::error::Error>>;
-}
-"#;
-
-    let start = Instant::now();
-    for _ in 0..100 {
-        let api = rx::semantic_hash::extract_public_api(black_box(source));
-        black_box(api);
-    }
-    let elapsed = start.elapsed();
-    println!(
-        "semantic_hash parse (100 iterations): {:.2}ms ({:.0} us/iter)",
-        elapsed.as_secs_f64() * 1000.0,
-        elapsed.as_secs_f64() * 1_000_000.0 / 100.0
-    );
-}
-
 fn bench_cache_fingerprint() {
     // Create a temporary project structure
     let tmp = std::env::temp_dir().join("rx-bench-fp");
@@ -91,6 +62,5 @@ fn main() {
     println!("rx benchmarks");
     println!("{}", "─".repeat(60));
     bench_xxhash_fingerprint();
-    bench_semantic_hash();
     bench_cache_fingerprint();
 }

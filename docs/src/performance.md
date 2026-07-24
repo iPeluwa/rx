@@ -13,12 +13,6 @@ The fingerprint covers:
 - The build profile (debug/release)
 - Active RUSTFLAGS
 
-## Semantic fingerprinting
-
-Instead of rebuilding downstream crates whenever an upstream crate changes, rx parses Rust source files with `syn` and extracts only public API signatures (functions, structs, enums, traits, type aliases, impls). The fingerprint is computed from this extracted API surface.
-
-This means changes to comments, formatting, private functions, or function bodies do not trigger downstream rebuilds. See [Semantic Fingerprinting](./advanced/semantic-fingerprint.md) for details.
-
 ## Mtime fast-path
 
 Before computing any content hash, rx checks the `mtime` (modification time) of every source file against a stored snapshot. If no file has a newer mtime than the last recorded build, the cached fingerprint is reused instantly without reading any file contents.

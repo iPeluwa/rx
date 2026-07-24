@@ -41,9 +41,8 @@ mod sandbox;
 mod sbom;
 mod script;
 mod selfupdate;
-mod semantic_hash;
-mod speculative;
 mod size;
+mod speculative;
 mod stats;
 #[allow(dead_code)]
 mod telemetry;

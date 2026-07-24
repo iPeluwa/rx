@@ -12,18 +12,19 @@
   <a href="https://github.com/iPeluwa/rx"><img src="https://img.shields.io/badge/MSRV-1.85.0-orange" alt="MSRV"></a>
 </p>
 
-<p align="center">A fast, unified Rust toolchain manager. One binary to replace the fragmented Rust CLI ecosystem.</p>
+<p align="center">Fast local CI and task runner for Rust workspaces. Define your pipeline once, run it the same way locally and in CI.</p>
+
+> **Scope note:** rx is being refocused from a "unified toolchain manager" to a fast local-CI and task runner for Rust workspaces. See [PRODUCT.md](PRODUCT.md) for the product definition and explicit non-goals. Commands outside that scope will be removed in an upcoming 0.2 release.
 
 ## Why
 
-The Rust toolchain is powerful but fragmented. You need `rustup`, `cargo`, `clippy`, `rustfmt`, `cargo-nextest`, `cargo-watch`, `sccache` — all installed separately, versioned independently, and configured in different places. Build times are slow, `target/` directories are massive, and workspace support is clunky.
+CI failures you could have caught locally waste round-trips, and every project reinvents the same fmt/clippy/test/build pipeline in shell scripts and YAML. **rx** gives a Rust workspace one task definition that runs identically on your machine and in CI, understands which packages are affected by a change, and delegates compilation to Cargo and Cargo-compatible tools.
 
-**rx** wraps and extends Cargo into a single, opinionated CLI with:
+**rx** currently offers:
 
 - **Fast builds** — auto-detects `mold`/`lld` linkers, caches detection results persistently
-- **Global artifact cache** — content-addressed store with xxHash fingerprinting, atomic writes, file locking, and mtime fast-path
+- **Global artifact cache (opt-in)** — content-addressed store with xxHash fingerprinting; disabled by default because its fingerprint does not yet cover all compilation inputs (see PRODUCT.md)
 - **Remote cache** — share build artifacts across CI runners via S3, GCS, or local path
-- **Semantic fingerprinting** — only rebuild when public API changes, not on comment edits
 - **Pipelined builds** — overlap type-checking with codegen in workspace builds
 - **Cross-compilation** — `rx build --target <triple>` for easy cross-compiling
 - **Workspace orchestration** — dependency-aware parallel execution across workspace members

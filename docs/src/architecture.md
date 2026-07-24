@@ -11,7 +11,6 @@ rx
 ├── build/             cargo build orchestration, fast linker, cross-compilation
 ├── cache/             Content-addressed artifact store (xxHash, atomic writes, reflink)
 ├── remote_cache/      S3/GCS/local shared cache backend
-├── semantic_hash/     syn-based public API fingerprinting
 ├── pipeline/          Pipelined workspace builds (check + build overlap)
 ├── cargo_output/      Cargo JSON output parser with error hints
 ├── workspace/         Dependency graph, topological sort (Kahn's), parallel waves
@@ -94,8 +93,6 @@ Wave 1: [core, utils]       # no dependencies, run in parallel
 Wave 2: [api, cli]          # depend on wave 1, wait then run in parallel
 Wave 3: [integration-tests] # depends on wave 2
 ```
-
-Semantic fingerprinting allows skipping entire waves when the public API of their dependencies has not changed.
 
 ## Error handling
 
