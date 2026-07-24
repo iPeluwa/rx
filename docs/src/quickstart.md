@@ -1,31 +1,49 @@
 # Quick Start
 
-## Create a project
+## Set up a project
 
 ```sh
-rx new myproject               # binary project
-rx new myapi --template axum   # Axum web API
-rx new mycli --template cli    # Clap CLI
-rx new mywasm --template wasm  # WASM library
+cd my-rust-project
+rx init                        # generate rx.toml with smart defaults
+rx init --ci                   # also generate .github/workflows/ci.yml
+rx init --migrate              # detect existing tools and configure
+rx config                      # show resolved configuration
 ```
 
 ## Daily workflow
 
 ```sh
-rx build                       # build with fast linker + caching
+rx check                       # fast type-check feedback
+rx build                       # build with fast linker
 rx run                         # build and run
 rx test                        # run tests (nextest if available)
 rx lint                        # clippy with strict defaults
 rx fmt                         # rustfmt
 rx fix                         # auto-fix everything in one pass
 rx ci                          # run full CI pipeline locally
-rx watch                       # rebuild on file changes
 ```
 
-## Configuration
+## Workspaces
 
 ```sh
-rx init                        # generate rx.toml with smart defaults
-rx init --migrate              # detect existing tools and configure
-rx config                      # show resolved configuration
+rx graph                       # see the dependency graph
+rx ws run build                # build all members in dependency order
+rx test --affected             # only test packages your change touched
+```
+
+## Tasks
+
+Define project tasks once in `rx.toml`:
+
+```toml
+[scripts]
+ci = "cargo fmt --check && cargo clippy -- -D warnings && cargo test"
+bench = "cargo bench"
+```
+
+Then run them locally or in CI:
+
+```sh
+rx script ci
+rx script bench
 ```

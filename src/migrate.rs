@@ -84,12 +84,6 @@ pub fn migrate() -> Result<()> {
         );
     }
 
-    // Detect watch patterns
-    if cwd.join("assets").exists() || cwd.join("static").exists() {
-        config.watch.ignore.push("assets/**".into());
-        crate::output::step("detect", "assets directory found — added to watch ignore");
-    }
-
     // Write config
     let toml_str = toml::to_string_pretty(&config).context("failed to serialize config")?;
     fs::write(&rx_toml, &toml_str)?;

@@ -334,12 +334,12 @@ pub fn doctor() -> Result<()> {
                             .count();
                         if vuln_count > 0 {
                             println!(
-                                "  {}  {} security advisory(ies) — run `rx audit`",
+                                "  {}  {} security advisory(ies) — run `cargo audit`",
                                 "⚠".yellow(),
                                 vuln_count
                             );
                             suggestions.push(format!(
-                                "{vuln_count} security advisory(ies) found — run `rx audit` for details"
+                                "{vuln_count} security advisory(ies) found — run `cargo audit` for details"
                             ));
                         } else {
                             println!("  {}  Security check completed with warnings", "⚠".yellow());

@@ -75,13 +75,9 @@ The distributed rx binary is compiled with:
 - Stripped symbols (smaller binary)
 - `panic = abort` (no unwind tables)
 
-## Native file watcher
-
-`rx watch` uses the `notify` crate directly instead of spawning `cargo-watch` as a subprocess. This avoids process startup overhead and provides tighter integration with rx's file filtering and debouncing.
-
 ## Lazy config loading
 
-Commands that do not need project configuration (like `rx self-update` or `rx completions`) skip loading and parsing `rx.toml` entirely, reducing startup latency.
+Commands that do not need project configuration (like `rx doctor` or `rx completions`) skip loading and parsing `rx.toml` entirely, reducing startup latency.
 
 ## Persistent env cache
 

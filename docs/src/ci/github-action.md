@@ -103,17 +103,6 @@ jobs:
     cache: true
 ```
 
-### With remote cache
-
-```yaml
-- uses: iPeluwa/rx@v1
-  with:
-    command: build --release
-  env:
-    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-```
-
 ### Subdirectory project
 
 ```yaml

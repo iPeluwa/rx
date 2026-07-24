@@ -159,7 +159,7 @@ fn find_project_root() -> Result<PathBuf> {
         if !dir.pop() {
             anyhow::bail!(
                 "could not find Cargo.toml in any parent directory\n\
-                 hint: run this command from inside a Rust project, or use `rx new <name>` to create one"
+                 hint: run this command from inside a Rust project, or use `cargo new <name>` to create one"
             );
         }
     }

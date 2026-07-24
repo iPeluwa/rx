@@ -33,16 +33,6 @@ env = { CI = "true", RUST_BACKTRACE = "1" }
 rx --profile ci ci
 ```
 
-## Lockfile enforcement
-
-Ensure dependency versions are reproducible:
-
-```sh
-rx lockfile enforce
-```
-
-This fails the build if `Cargo.lock` is out of sync with `Cargo.toml`. See [Lockfile Policy](./advanced/lockfile.md).
-
 ## Affected-only testing
 
 In large workspaces, only test what changed:
@@ -51,37 +41,23 @@ In large workspaces, only test what changed:
 rx test --affected --base main
 ```
 
-## MSRV verification
-
-Verify compatibility with your declared minimum Rust version:
-
-```sh
-rx compat
-```
-
 ## Recommended CI pipeline
 
-A comprehensive CI pipeline might look like:
-
 ```sh
-rx lockfile enforce
 rx --profile ci ci
-rx compat
-rx audit
 ```
 
 Or as separate steps for better CI reporting:
 
 ```yaml
 steps:
-  - run: rx lockfile enforce
   - run: rx fmt --check
   - run: rx lint
   - run: rx test --affected --base main
   - run: rx build --release
-  - run: rx compat
-  - run: rx audit
 ```
+
+Dedicated tools slot in as extra steps where you need them (e.g. `cargo audit`, `cargo deny`).
 
 ## Integrations
 

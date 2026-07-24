@@ -1,4 +1,3 @@
-use indicatif::{ProgressBar, ProgressStyle};
 use owo_colors::OwoColorize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
@@ -54,22 +53,6 @@ pub fn verbose(msg: &str) {
     if is_verbose() {
         eprintln!("{} {msg}", "[rx]".dimmed());
     }
-}
-
-/// Create a spinner for long-running operations.
-pub fn spinner(msg: &str) -> ProgressBar {
-    if is_quiet() {
-        return ProgressBar::hidden();
-    }
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::with_template("{spinner:.cyan} {msg}")
-            .unwrap()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ "),
-    );
-    pb.set_message(msg.to_string());
-    pb.enable_steady_tick(std::time::Duration::from_millis(80));
-    pb
 }
 
 /// Helper to time an operation and report duration.

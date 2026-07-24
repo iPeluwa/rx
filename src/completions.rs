@@ -20,13 +20,6 @@ pub fn generate_completions(shell: Shell) -> Result<()> {
     Ok(())
 }
 
-pub fn generate_manpage() -> Result<()> {
-    let cmd = crate::cli::Cli::command();
-    let man = clap_mangen::Man::new(cmd);
-    man.render(&mut io::stdout())?;
-    Ok(())
-}
-
 pub fn install_completions(shell: Shell) -> Result<()> {
     let mut cmd = crate::cli::Cli::command();
     let mut buffer = Vec::new();
@@ -117,33 +110,6 @@ pub fn install_completions(shell: Shell) -> Result<()> {
     Ok(())
 }
 
-pub fn install_manpage() -> Result<()> {
-    let cmd = crate::cli::Cli::command();
-    let man = clap_mangen::Man::new(cmd);
-
-    let mut buffer = Vec::new();
-    man.render(&mut buffer)?;
-
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| anyhow::anyhow!("Could not determine home directory"))?;
-
-    let dir = PathBuf::from(&home).join(".local/share/man/man1");
-    fs::create_dir_all(&dir)?;
-
-    let path = dir.join("rx.1");
-    fs::write(&path, &buffer)?;
-
-    println!("Man page installed to {}", path.display());
-    println!("\nTo use: man rx");
-    println!(
-        "Note: Ensure {} is in your MANPATH",
-        dir.parent().unwrap().display()
-    );
-
-    Ok(())
-}
-
 /// Discover workspace members for dynamic completion.
 fn workspace_members() -> Vec<String> {
     let output = std::process::Command::new("cargo")
@@ -168,21 +134,6 @@ fn workspace_members() -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-/// Discover installed toolchains for dynamic completion.
-fn installed_toolchains() -> Vec<String> {
-    let output = std::process::Command::new("rustup")
-        .args(["toolchain", "list"])
-        .output();
-
-    match output {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
-            .lines()
-            .map(|l| l.split_whitespace().next().unwrap_or(l).to_string())
-            .collect(),
-        _ => vec![],
-    }
 }
 
 /// Discover installed targets for dynamic completion.
@@ -210,7 +161,6 @@ fn available_scripts() -> Vec<String> {
 
 fn emit_bash_dynamic_completions() -> Result<()> {
     let members = workspace_members();
-    let toolchains = installed_toolchains();
     let targets = installed_targets();
     let scripts = available_scripts();
 
@@ -226,18 +176,6 @@ fn emit_bash_dynamic_completions() -> Result<()> {
         println!(
             "    COMPREPLY=( $(compgen -W \"{}\" -- \"$cur\") )",
             members.join(" ")
-        );
-        println!("    return");
-        println!("  fi");
-    }
-
-    if !toolchains.is_empty() {
-        println!(
-            "  if [[ \"${{COMP_WORDS[1]}}\" == \"toolchain\" && \"$prev\" == \"use\" ]]; then"
-        );
-        println!(
-            "    COMPREPLY=( $(compgen -W \"{}\" -- \"$cur\") )",
-            toolchains.join(" ")
         );
         println!("    return");
         println!("  fi");
@@ -272,7 +210,6 @@ fn emit_bash_dynamic_completions() -> Result<()> {
 fn emit_bash_dynamic_completions_to_buffer(buffer: &mut Vec<u8>) -> Result<()> {
     use std::io::Write;
     let members = workspace_members();
-    let toolchains = installed_toolchains();
     let targets = installed_targets();
     let scripts = available_scripts();
 
@@ -292,20 +229,6 @@ fn emit_bash_dynamic_completions_to_buffer(buffer: &mut Vec<u8>) -> Result<()> {
             buffer,
             "    COMPREPLY=( $(compgen -W \"{}\" -- \"$cur\") )",
             members.join(" ")
-        )?;
-        writeln!(buffer, "    return")?;
-        writeln!(buffer, "  fi")?;
-    }
-
-    if !toolchains.is_empty() {
-        writeln!(
-            buffer,
-            "  if [[ \"${{COMP_WORDS[1]}}\" == \"toolchain\" && \"$prev\" == \"use\" ]]; then"
-        )?;
-        writeln!(
-            buffer,
-            "    COMPREPLY=( $(compgen -W \"{}\" -- \"$cur\") )",
-            toolchains.join(" ")
         )?;
         writeln!(buffer, "    return")?;
         writeln!(buffer, "  fi")?;

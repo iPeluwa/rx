@@ -82,10 +82,6 @@ rx clean --all                   # clean all workspace member target/ dirs
 rx cache purge                   # delete the entire global cache
 ```
 
-## Remote cache
-
-rx can push and pull cache artifacts to a remote backend for sharing across CI runners and team members. See [Remote Cache](../advanced/remote-cache.md) for configuration details.
-
 ## Disabling the cache
 
 Disable caching globally or per-profile:

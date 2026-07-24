@@ -9,7 +9,6 @@
 | `cache` | bool | `false` | Enable the global artifact cache (opt-in; fingerprint does not yet cover target triple, features, toolchain, or build scripts — see PRODUCT.md) |
 | `jobs` | u32 | `0` | Parallel jobs (0 = auto-detect CPU count) |
 | `incremental_link` | bool | `true` | Enable incremental linking (split-debuginfo, --as-needed) |
-| `remote_cache` | string | `""` | Remote cache URL: `"s3://bucket/prefix"`, `"gs://bucket/prefix"`, or `"/path"` |
 
 ## `[test]`
 
@@ -30,13 +29,6 @@
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `extra_args` | string[] | `[]` | Extra rustfmt arguments |
-
-## `[watch]`
-
-| Key | Type | Default | Description |
-|---|---|---|---|
-| `cmd` | string | `"build"` | Default command on file changes |
-| `ignore` | string[] | `[]` | File patterns to ignore (e.g. `["*.log", "tmp/**"]`) |
 
 ## `[scripts]`
 
