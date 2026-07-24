@@ -9,7 +9,7 @@ How rx compares to other Rust build tools and task runners.
 | Build, test, fmt, clippy | Yes (separate commands) | Yes (unified + `rx ci`) |
 | One-command local CI | No | `rx ci` |
 | Affected-package detection | No | `rx test --affected` |
-| Workspace task orchestration | Basic (`--workspace`) | Dependency-aware parallel waves |
+| Workspace task orchestration | Basic (`--workspace`) | Task graphs + affected-package selection |
 | Fast linker detection | No | Yes (auto-detects mold/lld) |
 | Config file | Cargo.toml only | rx.toml with profiles, tasks, env |
 | Shell completions | No | Yes (bash, zsh, fish, PowerShell) |
@@ -24,7 +24,7 @@ rx wraps Cargo — it doesn't replace it. Every rx command runs standard Cargo u
 |---------|------------|----|
 | Task definitions | Makefile.toml (verbose) | rx.toml `[tasks]` with depends-on (concise) |
 | Built-in Rust commands | No (shell tasks) | Yes (build, test, lint, fmt, ci) |
-| Workspace awareness | Plugin-based | Built-in with parallel waves |
+| Workspace awareness | Plugin-based | Built-in (cargo metadata) |
 | Affected-package detection | No | Built-in |
 
 ## rx vs just

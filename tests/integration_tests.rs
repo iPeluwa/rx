@@ -365,3 +365,137 @@ fn integration_version_output() {
         "version output should contain 'rx', got: {stdout}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// --affected integration tests (two-member workspace with git history)
+// ---------------------------------------------------------------------------
+
+/// Create a git workspace with two members where `cli` depends on `core`,
+/// plus a `probe` task that echoes RX_AFFECTED_PACKAGES.
+fn create_workspace_with_git(dir: &std::path::Path) -> std::path::PathBuf {
+    let ws = dir.join("ws");
+    fs::create_dir_all(ws.join("core/src")).unwrap();
+    fs::create_dir_all(ws.join("cli/src")).unwrap();
+
+    fs::write(
+        ws.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"core\", \"cli\"]\nresolver = \"2\"\n",
+    )
+    .unwrap();
+    fs::write(
+        ws.join("core/Cargo.toml"),
+        "[package]\nname = \"core\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    fs::write(ws.join("core/src/lib.rs"), "pub fn core() -> u32 { 1 }\n").unwrap();
+    fs::write(
+        ws.join("cli/Cargo.toml"),
+        "[package]\nname = \"cli\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\ncore = { path = \"../core\" }\n",
+    )
+    .unwrap();
+    fs::write(ws.join("cli/src/lib.rs"), "pub fn cli() -> u32 { 2 }\n").unwrap();
+    fs::write(
+        ws.join("rx.toml"),
+        "[tasks]\nprobe = \"echo AFFECTED=[$RX_AFFECTED_PACKAGES]\"\n",
+    )
+    .unwrap();
+
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(&ws)
+            .output()
+            .expect("git failed to run");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "-q"]);
+    git(&["add", "."]);
+    git(&[
+        "-c",
+        "user.name=test",
+        "-c",
+        "user.email=test@test",
+        "commit",
+        "-qm",
+        "init",
+    ]);
+
+    ws
+}
+
+#[test]
+fn integration_affected_leaf_change_selects_only_leaf() {
+    let tmp = TempDir::new().unwrap();
+    let ws = create_workspace_with_git(tmp.path());
+
+    // Change only `cli` (the leaf) — core must not be selected.
+    fs::write(ws.join("cli/src/lib.rs"), "pub fn cli() -> u32 { 22 }\n").unwrap();
+
+    let output = rx(&ws, &["run", "probe", "--affected", "--base", "HEAD"]);
+    assert!(
+        output.status.success(),
+        "rx run probe --affected failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("AFFECTED=[cli]"),
+        "expected only cli affected, got: {stdout}"
+    );
+}
+
+#[test]
+fn integration_affected_base_change_propagates_to_dependents() {
+    let tmp = TempDir::new().unwrap();
+    let ws = create_workspace_with_git(tmp.path());
+
+    // Change `core` — `cli` depends on it, so both are affected.
+    fs::write(ws.join("core/src/lib.rs"), "pub fn core() -> u32 { 11 }\n").unwrap();
+
+    let output = rx(&ws, &["run", "probe", "--affected", "--base", "HEAD"]);
+    assert!(
+        output.status.success(),
+        "rx run probe --affected failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("AFFECTED=[cli core]") || stdout.contains("AFFECTED=[core cli]"),
+        "expected core change to propagate to cli, got: {stdout}"
+    );
+}
+
+#[test]
+fn integration_affected_no_changes_skips() {
+    let tmp = TempDir::new().unwrap();
+    let ws = create_workspace_with_git(tmp.path());
+
+    let output = rx(&ws, &["run", "probe", "--affected", "--base", "HEAD"]);
+    assert!(
+        output.status.success(),
+        "rx run probe --affected (clean) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("AFFECTED=["),
+        "probe should not run when nothing changed, got: {stdout}"
+    );
+}
+
+#[test]
+fn integration_ci_affected_no_changes_skips() {
+    let tmp = TempDir::new().unwrap();
+    let ws = create_workspace_with_git(tmp.path());
+
+    let output = rx(&ws, &["ci", "--affected", "--base", "HEAD"]);
+    assert!(
+        output.status.success(),
+        "rx ci --affected (clean) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

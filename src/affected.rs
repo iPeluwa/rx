@@ -1,6 +1,10 @@
 use anyhow::{Context, Result};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::process::Command;
+
+/// Sentinel returned for single-package (non-workspace) projects: the whole
+/// project is affected, and no `-p` selection should be passed to Cargo.
+pub const ROOT: &str = "(root)";
 
 /// Get the list of files changed since a base ref (default: HEAD~1).
 fn changed_files(base: &str) -> Result<Vec<String>> {
@@ -31,7 +35,36 @@ fn changed_files(base: &str) -> Result<Vec<String>> {
     Ok(stdout.lines().map(|s| s.to_string()).collect())
 }
 
+/// Expand a set of directly-changed members to everything that depends on
+/// them, transitively. A change in `core` affects every member whose
+/// (transitive) dependencies include `core`.
+fn propagate_to_dependents(
+    direct: &HashSet<String>,
+    deps: &HashMap<String, HashSet<String>>,
+) -> HashSet<String> {
+    let mut affected = direct.clone();
+    // Fixed point: keep adding members that depend on an affected member.
+    loop {
+        let before = affected.len();
+        for (member, member_deps) in deps {
+            if !affected.contains(member) && member_deps.iter().any(|d| affected.contains(d)) {
+                affected.insert(member.clone());
+            }
+        }
+        if affected.len() == before {
+            return affected;
+        }
+    }
+}
+
 /// Determine which workspace packages are affected by changed files.
+///
+/// Resolution happens once: changed files are mapped to workspace members,
+/// then the set is expanded to transitive dependents. Callers pass the
+/// result to a single Cargo invocation with repeated `-p` selections.
+///
+/// Returns `[ROOT]` for single-package projects (run without `-p`), or an
+/// empty vec when nothing relevant changed.
 pub fn affected_packages(base: &str) -> Result<Vec<String>> {
     let files = changed_files(base)?;
 
@@ -45,56 +78,151 @@ pub fn affected_packages(base: &str) -> Result<Vec<String>> {
     // Try to resolve workspace
     match crate::workspace::resolve_workspace() {
         Ok(graph) => {
-            let mut affected = HashSet::new();
+            // A single-package project has no meaningful member selection.
+            if graph.members.len() == 1 {
+                return Ok(vec![ROOT.to_string()]);
+            }
 
-            for file in &files {
-                for member in &graph.members {
-                    let rel = member
+            // Member directories relative to the workspace root. A member
+            // with an empty rel is the root package itself.
+            let member_rels: Vec<(String, String)> = graph
+                .members
+                .iter()
+                .map(|m| {
+                    let rel = m
                         .path
                         .strip_prefix(&graph.root)
-                        .unwrap_or(&member.path)
-                        .to_string_lossy();
+                        .unwrap_or(&m.path)
+                        .to_string_lossy()
+                        .into_owned();
+                    (m.name.clone(), rel)
+                })
+                .collect();
 
-                    if file.starts_with(rel.as_ref()) {
-                        affected.insert(member.name.clone());
+            let mut direct: HashSet<String> = HashSet::new();
+
+            for file in &files {
+                // Longest matching member directory wins, so nested members
+                // don't also attribute changes to the root package (rel "").
+                let owner = member_rels
+                    .iter()
+                    .filter(|(_, rel)| rel.is_empty() || file.starts_with(rel.as_str()))
+                    .max_by_key(|(_, rel)| rel.len());
+
+                match owner {
+                    Some((name, rel)) if !rel.is_empty() => {
+                        direct.insert(name.clone());
                     }
+                    Some((name, _)) if file.contains('/') => {
+                        // Root package owns nested files no member matched
+                        // (e.g. its own src/).
+                        direct.insert(name.clone());
+                    }
+                    _ => {}
                 }
 
                 // Root-level files (Cargo.toml, Cargo.lock, etc.) affect everything
                 if !file.contains('/') {
                     for member in &graph.members {
-                        affected.insert(member.name.clone());
+                        direct.insert(member.name.clone());
                     }
                 }
             }
 
+            if direct.is_empty() {
+                crate::output::info("no workspace members affected");
+                return Ok(vec![]);
+            }
+
+            // A changed member affects everything that depends on it.
+            let affected = propagate_to_dependents(&direct, &graph.deps);
+
             let mut result: Vec<String> = affected.into_iter().collect();
             result.sort();
-
-            if result.is_empty() {
-                // Not in any member path — might be a single-package project
-                // In that case, any change means the package is affected
-                crate::output::verbose(
-                    "not a workspace or changes outside members — treating as affected",
-                );
-                return Ok(vec!["(root)".to_string()]);
-            }
 
             crate::output::info(&format!("affected packages: {}", result.join(", ")));
             Ok(result)
         }
         Err(_) => {
-            // Not a workspace — if any Rust files changed, the project is affected
+            // Not a cargo project we can resolve — if any Rust files changed,
+            // treat the whole project as affected
             let has_rust_changes = files
                 .iter()
                 .any(|f| f.ends_with(".rs") || f == "Cargo.toml" || f == "Cargo.lock");
 
             if has_rust_changes {
-                Ok(vec!["(root)".to_string()])
+                Ok(vec![ROOT.to_string()])
             } else {
                 crate::output::info("no Rust source files changed");
                 Ok(vec![])
             }
         }
+    }
+}
+
+/// Convert an affected-packages result into the `-p` selection to hand to
+/// Cargo: `None` means "run without selection" (nothing to filter by),
+/// otherwise the list of package names.
+pub fn to_package_selection(affected: Vec<String>) -> Option<Vec<String>> {
+    if affected.len() == 1 && affected[0] == ROOT {
+        None
+    } else {
+        Some(affected)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn deps(pairs: &[(&str, &[&str])]) -> HashMap<String, HashSet<String>> {
+        pairs
+            .iter()
+            .map(|(name, ds)| (name.to_string(), ds.iter().map(|d| d.to_string()).collect()))
+            .collect()
+    }
+
+    fn direct(names: &[&str]) -> HashSet<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn leaf_change_does_not_propagate_upstream() {
+        // cli depends on core; changing cli affects only cli
+        let graph = deps(&[("core", &[]), ("cli", &["core"])]);
+        let affected = propagate_to_dependents(&direct(&["cli"]), &graph);
+        assert_eq!(affected, direct(&["cli"]));
+    }
+
+    #[test]
+    fn base_change_propagates_to_dependents() {
+        // cli depends on core; changing core affects both
+        let graph = deps(&[("core", &[]), ("cli", &["core"])]);
+        let affected = propagate_to_dependents(&direct(&["core"]), &graph);
+        assert_eq!(affected, direct(&["core", "cli"]));
+    }
+
+    #[test]
+    fn propagation_is_transitive() {
+        // api -> core, cli -> api; changing core affects all three
+        let graph = deps(&[("core", &[]), ("api", &["core"]), ("cli", &["api"])]);
+        let affected = propagate_to_dependents(&direct(&["core"]), &graph);
+        assert_eq!(affected, direct(&["core", "api", "cli"]));
+    }
+
+    #[test]
+    fn siblings_are_not_affected() {
+        let graph = deps(&[("core", &[]), ("a", &["core"]), ("b", &["core"])]);
+        let affected = propagate_to_dependents(&direct(&["a"]), &graph);
+        assert_eq!(affected, direct(&["a"]));
+    }
+
+    #[test]
+    fn root_selection_maps_to_none() {
+        assert_eq!(to_package_selection(vec![ROOT.to_string()]), None);
+        assert_eq!(
+            to_package_selection(vec!["a".to_string()]),
+            Some(vec!["a".to_string()])
+        );
     }
 }

@@ -14,7 +14,7 @@ fn has_nextest() -> bool {
 
 pub fn test(
     filter: Option<&str>,
-    package: Option<&str>,
+    packages: &[String],
     release: bool,
     config: &RxConfig,
 ) -> Result<()> {
@@ -38,7 +38,7 @@ pub fn test(
     if release {
         cmd.arg("--release");
     }
-    if let Some(pkg) = package {
+    for pkg in packages {
         cmd.args(["--package", pkg]);
     }
 
