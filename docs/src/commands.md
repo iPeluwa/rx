@@ -29,18 +29,20 @@ rx has a deliberately small command surface. All commands support the global fla
 | Command | Description |
 |---------|-------------|
 | `rx test` | Run tests (nextest if available) |
-| `rx test --affected` | Only test packages changed since base ref |
+| `rx test --affected` | Only test changed packages + their dependents (single invocation, repeated `-p`) |
 | `rx test --affected --base main` | Changed since a specific branch |
 | `rx lint` | Lint with clippy (strict defaults) |
 | `rx fmt` | Format code with rustfmt |
 | `rx fix` | Auto-fix everything (compiler + clippy + fmt) |
 | `rx ci` | Run full pipeline: fmt, clippy, test, build |
+| `rx ci --affected` | Run the pipeline against affected packages only |
 
 ## Tasks
 
 | Command | Description |
 |---------|-------------|
 | `rx run <task>` | Run a task and its `depends-on` graph (built-ins: fmt, lint, test, build, check, ci) |
+| `rx run <task> --affected` | Scope the task to affected packages (`RX_AFFECTED_PACKAGES` for shell tasks) |
 | `rx run <task> -- <args>` | Append extra args to the task's shell command |
 | `rx run` | List available tasks |
 
@@ -50,7 +52,7 @@ rx has a deliberately small command surface. All commands support the global fla
 |---------|-------------|
 | `rx graph` | Show the workspace dependency graph |
 | `rx ws list` | List all workspace members |
-| `rx ws run <cmd>` | Run a cargo command across members in dependency order |
+| `rx ws run <cmd>` | Run one `cargo <cmd> --workspace` from the root |
 | `rx ws exec <cmd>` | Run a shell command in each member directory |
 
 ## Maintenance

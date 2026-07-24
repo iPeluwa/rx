@@ -33,11 +33,12 @@ env = { CI = "true", RUST_BACKTRACE = "1" }
 rx --profile ci ci
 ```
 
-## Affected-only testing
+## Affected-only execution
 
-In large workspaces, only test what changed:
+In large workspaces, only check what changed (plus its dependents):
 
 ```sh
+rx ci --affected --base main
 rx test --affected --base main
 ```
 

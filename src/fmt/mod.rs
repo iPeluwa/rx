@@ -4,11 +4,15 @@ use std::process::Command;
 use crate::config::RxConfig;
 use crate::output::Timer;
 
-pub fn fmt(check: bool, config: &RxConfig) -> Result<()> {
+pub fn fmt(check: bool, packages: &[String], config: &RxConfig) -> Result<()> {
     let timer = Timer::start("fmt");
     let start = std::time::Instant::now();
     let mut cmd = Command::new("cargo");
     cmd.arg("fmt");
+
+    for pkg in packages {
+        cmd.args(["--package", pkg]);
+    }
 
     if check {
         cmd.arg("--check");

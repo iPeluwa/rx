@@ -57,6 +57,12 @@ pub enum Command {
     Run {
         /// Task name (built-ins: fmt, lint, test, build, check, ci)
         task: Option<String>,
+        /// Only run against packages affected by changes since base ref
+        #[arg(long)]
+        affected: bool,
+        /// Base ref for --affected (default: HEAD~1)
+        #[arg(long, default_value = "HEAD~1")]
+        base: String,
         /// Extra arguments appended to the task's shell command
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
@@ -105,7 +111,14 @@ pub enum Command {
     Fix,
 
     /// Run the ci task: your [tasks.ci] pipeline, or fmt+lint+test+build
-    Ci,
+    Ci {
+        /// Only run against packages affected by changes since base ref
+        #[arg(long)]
+        affected: bool,
+        /// Base ref for --affected (default: HEAD~1)
+        #[arg(long, default_value = "HEAD~1")]
+        base: String,
+    },
 
     /// Show the dependency graph between workspace members
     Graph,
@@ -189,6 +202,32 @@ pub enum StatsCommand {
     Clear,
 }
 
+/// What an --affected resolution means for package selection.
+enum Selection {
+    /// No filtering — run against the whole project/workspace.
+    Everything,
+    /// Run against exactly these packages (repeated -p).
+    Packages(Vec<String>),
+    /// Nothing relevant changed — skip the work entirely.
+    Nothing,
+}
+
+/// Resolve --affected once; callers translate the selection into a single
+/// Cargo invocation.
+fn resolve_affected(affected: bool, base: &str) -> Result<Selection> {
+    if !affected {
+        return Ok(Selection::Everything);
+    }
+    let packages = crate::affected::affected_packages(base)?;
+    if packages.is_empty() {
+        return Ok(Selection::Nothing);
+    }
+    Ok(match crate::affected::to_package_selection(packages) {
+        None => Selection::Everything,
+        Some(pkgs) => Selection::Packages(pkgs),
+    })
+}
+
 /// Load config, apply profile overrides, and set env vars.
 fn load_config(profile: Option<&str>) -> Result<crate::config::RxConfig> {
     let mut config = crate::config::load()?;
@@ -253,9 +292,27 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             release,
             package,
             target,
-        } => crate::build::build(release, package.as_deref(), target.as_deref(), &config),
-        Command::Run { task, args } => match task {
-            Some(name) => crate::task::runner::run(&name, &args, &config),
+        } => {
+            let packages: Vec<String> = package.into_iter().collect();
+            crate::build::build(release, &packages, target.as_deref(), &config)
+        }
+        Command::Run {
+            task,
+            affected,
+            base,
+            args,
+        } => match task {
+            Some(name) => {
+                let packages = match resolve_affected(affected, &base)? {
+                    Selection::Everything => vec![],
+                    Selection::Packages(pkgs) => pkgs,
+                    Selection::Nothing => {
+                        crate::output::success("no affected packages — nothing to run");
+                        return Ok(());
+                    }
+                };
+                crate::task::runner::run(&name, &args, &packages, &config)
+            }
             None => crate::task::runner::list(&config),
         },
         Command::Test {
@@ -265,30 +322,39 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             affected,
             base,
         } => {
-            if affected {
-                let packages = crate::affected::affected_packages(&base)?;
-                if packages.is_empty() {
-                    crate::output::success("no affected packages — skipping tests");
+            // One test invocation with repeated -p, never one per package.
+            let packages = if affected {
+                match resolve_affected(true, &base)? {
+                    Selection::Everything => vec![],
+                    Selection::Packages(pkgs) => pkgs,
+                    Selection::Nothing => {
+                        crate::output::success("no affected packages — skipping tests");
+                        return Ok(());
+                    }
+                }
+            } else {
+                package.into_iter().collect()
+            };
+            crate::test::test(filter.as_deref(), &packages, release, &config)
+        }
+        Command::Fmt { check } => crate::fmt::fmt(check, &[], &config),
+        Command::Lint { fix } => crate::lint::lint(fix, &[], &config),
+        Command::Check { package } => {
+            let packages: Vec<String> = package.into_iter().collect();
+            crate::check::check(&packages, &config)
+        }
+        Command::Fix => crate::fix::fix(&config),
+        Command::Ci { affected, base } => {
+            let packages = match resolve_affected(affected, &base)? {
+                Selection::Everything => vec![],
+                Selection::Packages(pkgs) => pkgs,
+                Selection::Nothing => {
+                    crate::output::success("no affected packages — ci has nothing to check");
                     return Ok(());
                 }
-                // If it's a single root package, just run tests normally
-                if packages.len() == 1 && packages[0] == "(root)" {
-                    return crate::test::test(filter.as_deref(), None, release, &config);
-                }
-                // Run tests for each affected package
-                for pkg in &packages {
-                    crate::test::test(filter.as_deref(), Some(pkg), release, &config)?;
-                }
-                Ok(())
-            } else {
-                crate::test::test(filter.as_deref(), package.as_deref(), release, &config)
-            }
+            };
+            crate::task::runner::run("ci", &[], &packages, &config)
         }
-        Command::Fmt { check } => crate::fmt::fmt(check, &config),
-        Command::Lint { fix } => crate::lint::lint(fix, &config),
-        Command::Check { package } => crate::check::check(package.as_deref(), &config),
-        Command::Fix => crate::fix::fix(&config),
-        Command::Ci => crate::task::runner::run("ci", &[], &config),
         Command::Graph => crate::workspace::dispatch(WsCommand::Graph),
         Command::Cache(cmd) => crate::cache::dispatch(cmd),
         Command::Ws(cmd) => crate::workspace::dispatch(cmd),

@@ -2,8 +2,6 @@ use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
-use std::thread;
 
 use crate::cli::WsCommand;
 
@@ -161,178 +159,33 @@ pub fn topo_sort(graph: &WorkspaceGraph) -> Result<Vec<&Member>> {
     Ok(sorted)
 }
 
-/// Group members into parallelizable "waves" based on the dependency graph.
-/// Each wave contains members whose dependencies have all been satisfied by
-/// previous waves.
-pub fn parallel_waves(graph: &WorkspaceGraph) -> Result<Vec<Vec<&Member>>> {
-    let member_map: HashMap<&str, &Member> =
-        graph.members.iter().map(|m| (m.name.as_str(), m)).collect();
-
-    let mut in_degree: HashMap<&str, usize> = HashMap::new();
-    for m in &graph.members {
-        in_degree.entry(m.name.as_str()).or_insert(0);
-    }
-    for (name, dep_set) in &graph.deps {
-        for dep in dep_set {
-            if member_map.contains_key(dep.as_str()) {
-                *in_degree.entry(name.as_str()).or_insert(0) += 1;
-            }
-        }
-    }
-
-    let mut waves: Vec<Vec<&Member>> = Vec::new();
-    let mut remaining: HashSet<&str> = graph.members.iter().map(|m| m.name.as_str()).collect();
-
-    while !remaining.is_empty() {
-        let wave: Vec<&str> = remaining
-            .iter()
-            .filter(|&&name| in_degree.get(name).copied().unwrap_or(0) == 0)
-            .copied()
-            .collect();
-
-        if wave.is_empty() {
-            anyhow::bail!("cycle detected in workspace dependency graph");
-        }
-
-        let wave_members: Vec<&Member> =
-            wave.iter().map(|&n| *member_map.get(n).unwrap()).collect();
-        waves.push(wave_members);
-
-        for &name in &wave {
-            remaining.remove(name);
-            // Decrement in-degree for dependents
-            for (dependent, dep_set) in &graph.deps {
-                if dep_set.contains(name) {
-                    if let Some(deg) = in_degree.get_mut(dependent.as_str()) {
-                        *deg = deg.saturating_sub(1);
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(waves)
-}
-
 // ---------------------------------------------------------------------------
-// Execution engine
+// Execution
 // ---------------------------------------------------------------------------
 
-/// Result of running a command on a package.
-struct ExecResult {
-    package: String,
-    success: bool,
-    output: String,
-}
-
-/// Run a shell command in a member's directory.
-fn run_in_dir(member: &Member, cmd: &str, args: &[String]) -> ExecResult {
-    let result = Command::new(cmd)
-        .args(args)
-        .current_dir(&member.path)
-        .output();
-
-    match result {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            ExecResult {
-                package: member.name.clone(),
-                success: output.status.success(),
-                output: format!("{stdout}{stderr}"),
-            }
-        }
-        Err(e) => ExecResult {
-            package: member.name.clone(),
-            success: false,
-            output: format!("failed to execute: {e}"),
-        },
-    }
-}
-
-/// Compute parallel waves from owned member data (avoids lifetime issues with threads).
-fn compute_waves(graph: &WorkspaceGraph) -> Result<Vec<Vec<Member>>> {
-    let waves = parallel_waves(graph)?;
-    Ok(waves
-        .into_iter()
-        .map(|wave| wave.into_iter().cloned().collect())
-        .collect())
-}
-
-/// Run a cargo subcommand across workspace members in parallel waves.
+/// Run a cargo subcommand across the workspace as a SINGLE cargo invocation
+/// (`cargo <cmd> --workspace`). Cargo owns package scheduling and builds
+/// independent crates in parallel itself — rx does not recreate that with
+/// one process per member.
 fn run_across_workspace(cargo_cmd: &str, extra_args: &[String]) -> Result<()> {
     let graph = resolve_workspace()?;
-    let waves = compute_waves(&graph)?;
-    let total = graph.members.len();
-
     crate::output::info(&format!(
-        "workspace: {total} members, {} wave(s)",
-        waves.len()
+        "workspace: {} members — cargo {cargo_cmd} --workspace",
+        graph.members.len()
     ));
 
-    let failed = Arc::new(Mutex::new(Vec::<String>::new()));
+    let status = Command::new("cargo")
+        .arg(cargo_cmd)
+        .arg("--workspace")
+        .args(extra_args)
+        .current_dir(&graph.root)
+        .status()
+        .with_context(|| format!("failed to run cargo {cargo_cmd}"))?;
 
-    for (wave_idx, wave) in waves.iter().enumerate() {
-        let active: Vec<Member> = wave.to_vec();
-
-        if active.is_empty() {
-            continue;
-        }
-
-        crate::output::step(
-            &format!("wave {}/{}", wave_idx + 1, waves.len()),
-            &active
-                .iter()
-                .map(|m| m.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", "),
-        );
-
-        if active.len() == 1 {
-            let member = &active[0];
-            let mut args = vec![cargo_cmd.to_string()];
-            args.extend(extra_args.iter().cloned());
-            let result = run_in_dir(member, "cargo", &args);
-            print!("{}", result.output);
-            if !result.success {
-                failed.lock().unwrap().push(result.package);
-            }
-        } else {
-            let handles: Vec<_> = active
-                .iter()
-                .map(|member| {
-                    let member = member.clone();
-                    let cmd = cargo_cmd.to_string();
-                    let args: Vec<String> = extra_args.to_vec();
-                    let failed = Arc::clone(&failed);
-
-                    thread::spawn(move || {
-                        let mut full_args = vec![cmd];
-                        full_args.extend(args);
-                        let result = run_in_dir(&member, "cargo", &full_args);
-                        if !result.success {
-                            failed.lock().unwrap().push(result.package.clone());
-                        }
-                        result
-                    })
-                })
-                .collect();
-
-            for handle in handles {
-                let result = handle.join().expect("thread panicked");
-                print!("{}", result.output);
-            }
-        }
-
-        if !failed.lock().unwrap().is_empty() {
-            let failures = failed.lock().unwrap();
-            anyhow::bail!("failed in wave {}: {}", wave_idx + 1, failures.join(", "));
-        }
+    if !status.success() {
+        anyhow::bail!("cargo {cargo_cmd} --workspace failed");
     }
-
-    crate::output::success(&format!(
-        "workspace: all {total} members completed successfully"
-    ));
+    crate::output::success(&format!("workspace {cargo_cmd} completed"));
     Ok(())
 }
 

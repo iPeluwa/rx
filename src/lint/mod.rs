@@ -4,7 +4,7 @@ use std::process::Command;
 use crate::config::RxConfig;
 use crate::output::Timer;
 
-pub fn lint(fix: bool, config: &RxConfig) -> Result<()> {
+pub fn lint(fix: bool, packages: &[String], config: &RxConfig) -> Result<()> {
     let timer = Timer::start("lint");
     let start = std::time::Instant::now();
     let mut cmd = Command::new("cargo");
@@ -16,6 +16,10 @@ pub fn lint(fix: bool, config: &RxConfig) -> Result<()> {
         crate::output::info("applying lint fixes...");
     } else {
         crate::output::info("linting...");
+    }
+
+    for pkg in packages {
+        cmd.args(["--package", pkg]);
     }
 
     cmd.arg("--");

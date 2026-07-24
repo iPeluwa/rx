@@ -1,6 +1,6 @@
 # Workspace
 
-The `rx ws` commands provide dependency-aware orchestration for Cargo workspaces. Commands are executed across workspace members in parallel waves based on the dependency graph.
+The `rx ws` commands provide workspace-level orchestration for Cargo workspaces. Cargo commands run as a single `--workspace` invocation; shell commands run per member directory.
 
 ## Listing members
 
@@ -27,9 +27,9 @@ rx ws run test --release         # test all members in release mode
 rx ws run check                  # check all members
 ```
 
-`rx ws run` executes an rx command across all workspace members in dependency order. Independent packages run in parallel; dependent packages wait for their dependencies to complete.
+`rx ws run <cmd>` runs one `cargo <cmd> --workspace` from the workspace root. Cargo already builds independent crates in parallel — rx does not spawn one Cargo process per member.
 
-### Parallel waves
+## Parallel waves
 
 rx uses Kahn's algorithm for topological sorting to group packages into parallel "waves":
 
@@ -49,7 +49,7 @@ rx ws exec "cargo doc"           # run arbitrary cargo commands
 rx ws exec "echo \$PWD"         # show each member's directory
 ```
 
-`rx ws exec` runs an arbitrary shell command in each member's directory. Unlike `rx ws run`, this does not use dependency ordering -- commands run in parallel across all members.
+`rx ws exec` runs an arbitrary shell command in each member's directory, in dependency order (topological sort).
 
 ## Example workflow
 

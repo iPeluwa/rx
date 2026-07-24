@@ -209,7 +209,7 @@ fn collect_artifacts(target_dir: &Path, profile: &str) -> Result<Vec<(String, Pa
 
 pub fn build(
     release: bool,
-    package: Option<&str>,
+    packages: &[String],
     target: Option<&str>,
     config: &RxConfig,
 ) -> Result<()> {
@@ -221,7 +221,7 @@ pub fn build(
 
     // The artifact cache fingerprint does not include package selection or
     // target triple, so the cache must never answer those builds.
-    let cache_usable = config.build.cache && package.is_none() && target.is_none();
+    let cache_usable = config.build.cache && packages.is_empty() && target.is_none();
     if config.build.cache && !cache_usable {
         crate::output::verbose("artifact cache skipped: --package/--target not fingerprinted");
     }
@@ -262,7 +262,7 @@ pub fn build(
         if release {
             args_vec.push("--release");
         }
-        if let Some(pkg) = package {
+        for pkg in packages {
             args_vec.push("--package");
             args_vec.push(pkg);
         }
@@ -286,7 +286,7 @@ pub fn build(
         if release {
             cmd.arg("--release");
         }
-        if let Some(pkg) = package {
+        for pkg in packages {
             cmd.args(["--package", pkg]);
         }
         if let Some(t) = target {

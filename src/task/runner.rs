@@ -92,7 +92,17 @@ pub fn resolve_tasks(config: &RxConfig) -> HashMap<String, Task> {
 
 /// Run a task and its dependencies. Independent shell tasks within a wave
 /// run concurrently (with captured output); built-ins stream directly.
-pub fn run(name: &str, extra_args: &[String], config: &RxConfig) -> Result<()> {
+///
+/// `packages` is a resolved `-p` selection (e.g. from `--affected`): built-in
+/// tasks pass it to Cargo as repeated `--package` flags in a single
+/// invocation, and shell tasks receive it as the RX_AFFECTED_PACKAGES
+/// environment variable (space-separated).
+pub fn run(
+    name: &str,
+    extra_args: &[String],
+    packages: &[String],
+    config: &RxConfig,
+) -> Result<()> {
     let mut tasks = resolve_tasks(config);
 
     // `rx run <task> -- args` appends the args to the task's shell command.
@@ -108,6 +118,12 @@ pub fn run(name: &str, extra_args: &[String], config: &RxConfig) -> Result<()> {
             None => {} // unknown name — let waves() produce the error
         }
     }
+
+    let task_env: Vec<(String, String)> = if packages.is_empty() {
+        vec![]
+    } else {
+        vec![("RX_AFFECTED_PACKAGES".to_string(), packages.join(" "))]
+    };
 
     let waves = TaskGraph::new(&tasks).waves(name)?;
     let total: usize = waves.iter().map(|w| w.len()).sum();
@@ -136,7 +152,7 @@ pub fn run(name: &str, extra_args: &[String], config: &RxConfig) -> Result<()> {
             let (task_name, cmd) = &shell[0];
             crate::output::step(task_name, cmd);
             let start = Instant::now();
-            if !process::run_streamed(cmd)? {
+            if !process::run_streamed(cmd, &task_env)? {
                 anyhow::bail!("task `{task_name}` failed");
             }
             timings.push((task_name.clone(), start.elapsed()));
@@ -148,8 +164,9 @@ pub fn run(name: &str, extra_args: &[String], config: &RxConfig) -> Result<()> {
             .map(|(task_name, cmd)| {
                 crate::output::step(&task_name, &cmd);
                 let start = Instant::now();
+                let env = task_env.clone();
                 std::thread::spawn(move || {
-                    let result = process::run_captured(&cmd);
+                    let result = process::run_captured(&cmd, &env);
                     (task_name, result, start.elapsed())
                 })
             })
@@ -160,7 +177,7 @@ pub fn run(name: &str, extra_args: &[String], config: &RxConfig) -> Result<()> {
         for task_name in sequential {
             let start = Instant::now();
             crate::output::step(&task_name, "(built-in)");
-            if let Err(e) = run_builtin_task(&tasks[&task_name], config) {
+            if let Err(e) = run_builtin_task(&tasks[&task_name], packages, config) {
                 crate::output::error(&format!("task `{task_name}` failed: {e:#}"));
                 failed.push(task_name.clone());
             }
@@ -195,16 +212,16 @@ pub fn run(name: &str, extra_args: &[String], config: &RxConfig) -> Result<()> {
     Ok(())
 }
 
-fn run_builtin_task(task: &Task, config: &RxConfig) -> Result<()> {
+fn run_builtin_task(task: &Task, packages: &[String], config: &RxConfig) -> Result<()> {
     let TaskKind::Builtin(builtin) = &task.kind else {
         unreachable!("run_builtin_task called on non-builtin");
     };
     match builtin {
-        Builtin::FmtCheck => crate::fmt::fmt(true, config),
-        Builtin::Lint => crate::lint::lint(false, config),
-        Builtin::Test => crate::test::test(None, None, false, config),
-        Builtin::Build => crate::build::build(false, None, None, config),
-        Builtin::Check => crate::check::check(None, config),
+        Builtin::FmtCheck => crate::fmt::fmt(true, packages, config),
+        Builtin::Lint => crate::lint::lint(false, packages, config),
+        Builtin::Test => crate::test::test(None, packages, false, config),
+        Builtin::Build => crate::build::build(false, packages, None, config),
+        Builtin::Check => crate::check::check(packages, config),
     }
 }
 

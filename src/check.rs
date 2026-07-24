@@ -4,7 +4,7 @@ use std::process::Command;
 use crate::config::RxConfig;
 use crate::output::Timer;
 
-pub fn check(package: Option<&str>, config: &RxConfig) -> Result<()> {
+pub fn check(packages: &[String], config: &RxConfig) -> Result<()> {
     let timer = Timer::start("check");
     crate::output::info("type-checking...");
 
@@ -19,7 +19,7 @@ pub fn check(package: Option<&str>, config: &RxConfig) -> Result<()> {
         cmd.args(["--jobs", &config.build.jobs.to_string()]);
     }
 
-    if let Some(pkg) = package {
+    for pkg in packages {
         cmd.args(["--package", pkg]);
     }
 

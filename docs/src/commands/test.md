@@ -35,7 +35,9 @@ rx test --affected --base main    # changed since main branch
 rx test --affected --base v1.0    # changed since a tag
 ```
 
-rx maps changed files from `git diff` to workspace members and only runs tests for affected packages. This is especially useful in CI for large workspaces.
+rx maps changed files from `git diff` to workspace members, expands the set to transitive dependents (a change in `core` also affects everything that depends on it), and runs **one** test invocation with repeated `-p` selections. If nothing relevant changed, the run is skipped.
+
+`--affected` also works on `rx ci` and any task: `rx ci --affected`, `rx run lint --affected`. Shell tasks receive the selection as `RX_AFFECTED_PACKAGES`.
 
 ## Related commands
 

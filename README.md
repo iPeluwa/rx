@@ -24,8 +24,8 @@ CI failures you could have caught locally waste round-trips, and every project r
 
 - **One-command CI** — `rx ci` runs your full pipeline locally (fmt, clippy, test, build)
 - **Task runner** — define tasks once in `[tasks]` with `depends-on` pipelines; run them with `rx run <task>` locally and in CI, independent tasks run concurrently
-- **Affected-only testing** — `rx test --affected` only tests packages changed since a base ref
-- **Workspace orchestration** — dependency-aware parallel execution across workspace members
+- **Affected-only execution** — `--affected` on test/ci/run selects changed packages plus their dependents, passed to one Cargo invocation via repeated `-p`
+- **Workspace orchestration** — dependency-aware task execution; compilation scheduling stays with Cargo
 - **Unified commands** — `rx test` uses nextest when available, `rx lint` runs clippy with strict defaults, `rx fmt` runs rustfmt
 - **Fast builds** — auto-detects `mold`/`lld` linkers, caches detection results persistently
 - **CI generation** — `rx init --ci` writes a GitHub/GitLab/Circle pipeline that mirrors your local one
@@ -202,14 +202,18 @@ rx ci                   # exactly `rx run ci`
 
 Independent tasks in the same dependency wave run **concurrently** (with captured output so they don't interleave). Dependency cycles and unknown task names are rejected with a clear error. As tasks, the built-ins have CI semantics — the `fmt` task *checks* formatting rather than rewriting files (the `rx fmt` command still formats in place). Defining your own task with a built-in's name overrides it. Legacy `[scripts]` entries still work and are treated as tasks without dependencies.
 
-## Affected-only testing
+## Affected-only execution
 
 ```sh
 rx test --affected               # test packages changed since HEAD~1
-rx test --affected --base main   # test packages changed since main branch
+rx ci --affected                 # run the ci pipeline against affected packages
+rx run lint --affected           # any task, scoped to affected packages
+rx run deploy --affected --base main
 ```
 
-Maps changed files from `git diff` to workspace members and only runs tests for affected packages.
+Changed files from `git diff` are mapped to workspace members, then the set is expanded to **transitive dependents** — a change in `core` also selects everything that depends on `core`. Resolution happens once; the result is passed to a single Cargo invocation as repeated `-p` selections (never one Cargo process per member). If nothing relevant changed, the pipeline is skipped entirely.
+
+Shell tasks see the selection as the `RX_AFFECTED_PACKAGES` environment variable (space-separated), so custom tasks can scope themselves too.
 
 ## Workspace orchestration
 
@@ -218,12 +222,12 @@ For Cargo workspaces, `rx ws` provides dependency-aware execution:
 ```sh
 rx ws list                  # list all workspace members
 rx graph                    # show dependency graph (alias for rx ws graph)
-rx ws run build             # build all members in parallel waves
-rx ws run test --release    # test all members in release mode
+rx ws run build             # single `cargo build --workspace` from the root
+rx ws run test --release    # single `cargo test --workspace --release`
 rx ws exec "wc -l src/*.rs" # run a shell command in each member directory
 ```
 
-Members are grouped into parallel "waves" based on the dependency graph (Kahn's algorithm for topological sort). Independent packages build concurrently; dependent packages wait for their dependencies to complete.
+`rx ws run` issues one Cargo invocation with `--workspace` — Cargo already schedules independent crates in parallel, so rx does not recreate that with one process per member. `rx ws exec` runs in each member directory in dependency order (topological sort).
 
 ## Cache
 
@@ -246,7 +250,7 @@ rx (single binary, MSRV 1.85.0)
 ├── build/             cargo build with fast linker, cross-compilation, incremental linking
 ├── cache/             opt-in content-addressed store (xxHash, atomic writes, reflink)
 ├── cargo_output/      cargo JSON output parser with error hints
-├── workspace/         dependency graph, topo sort (Kahn's), parallel wave execution
+├── workspace/         dependency graph via cargo metadata, topo sort (Kahn's)
 ├── affected/          git-diff-based affected package detection
 ├── ci/ + ci_gen/      local CI pipeline + CI workflow generation
 ├── task/              task graph + runner: [tasks], depends-on, concurrency
@@ -283,7 +287,7 @@ cargo test
 | `cli_tests` | CLI parsing, including rejection of removed commands |
 | `config_tests` | Config loading, merging, profiles, serialization |
 | `integration_tests` | End-to-end: init, build, test, fmt, doctor, flags |
-| `workspace_tests` | Topo sort, parallel waves, cycle detection |
+| `workspace_tests` | Topo sort, cycle detection |
 
 CI runs on every push: check, test (ubuntu + macos), clippy, fmt, and MSRV verification.
 

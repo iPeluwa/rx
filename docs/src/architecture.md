@@ -11,7 +11,7 @@ rx
 ├── build/             cargo build orchestration, fast linker, cross-compilation
 ├── cache/             Opt-in content-addressed artifact store (xxHash, atomic writes, reflink)
 ├── cargo_output/      Cargo JSON output parser with error hints
-├── workspace/         Dependency graph, topological sort (Kahn's), parallel waves
+├── workspace/         Dependency graph via cargo metadata, topological sort (Kahn's)
 ├── affected/          Git-diff-based affected package detection
 ├── ci/ + ci_gen/      Local CI pipeline and CI workflow generation
 ├── task/              task graph + runner: [tasks], depends-on, wave concurrency
@@ -67,13 +67,9 @@ The global cache at `~/.rx/cache` is content-addressed:
 
 ## Workspace execution model
 
-For workspace commands, rx builds a dependency graph using Cargo metadata and performs a topological sort (Kahn's algorithm). Packages are grouped into parallel "waves":
+rx reads the workspace graph from `cargo metadata`. Cargo commands run as a **single invocation** (`--workspace`, or repeated `-p` selections for `--affected`) — Cargo schedules independent crates in parallel itself. rx's own wave concurrency applies at the *task* level (`[tasks]` with `depends-on`), not inside Cargo's compilation graph. `ws exec` uses a topological sort (Kahn's algorithm) to visit member directories in dependency order.
 
-```
-Wave 1: [core, utils]       # no dependencies, run in parallel
-Wave 2: [api, cli]          # depend on wave 1, wait then run in parallel
-Wave 3: [integration-tests] # depends on wave 2
-```
+For `--affected`, changed files are mapped to members, expanded to transitive dependents, and resolved once into a `-p` selection.
 
 ## Error handling
 

@@ -118,7 +118,25 @@ fn parse_fix() {
 #[test]
 fn parse_ci() {
     let cli = parse(&["ci"]);
-    assert!(matches!(cli.command, rx::cli::Command::Ci));
+    match cli.command {
+        rx::cli::Command::Ci { affected, base } => {
+            assert!(!affected);
+            assert_eq!(base, "HEAD~1");
+        }
+        _ => panic!("expected Ci"),
+    }
+}
+
+#[test]
+fn parse_ci_affected() {
+    let cli = parse(&["ci", "--affected", "--base", "main"]);
+    match cli.command {
+        rx::cli::Command::Ci { affected, base } => {
+            assert!(affected);
+            assert_eq!(base, "main");
+        }
+        _ => panic!("expected Ci"),
+    }
 }
 
 #[test]
@@ -131,9 +149,15 @@ fn parse_graph() {
 fn parse_run_task() {
     let cli = parse(&["run", "ci"]);
     match cli.command {
-        rx::cli::Command::Run { task, args } => {
+        rx::cli::Command::Run {
+            task,
+            args,
+            affected,
+            ..
+        } => {
             assert_eq!(task.unwrap(), "ci");
             assert!(args.is_empty());
+            assert!(!affected);
         }
         _ => panic!("expected Run"),
     }
@@ -152,7 +176,7 @@ fn parse_run_lists_when_no_task() {
 fn parse_run_with_passthrough_args() {
     let cli = parse(&["run", "hello", "--", "--my-flag", "value"]);
     match cli.command {
-        rx::cli::Command::Run { task, args } => {
+        rx::cli::Command::Run { task, args, .. } => {
             assert_eq!(task.unwrap(), "hello");
             assert_eq!(args, vec!["--my-flag", "value"]);
         }
@@ -402,4 +426,22 @@ fn removed_ws_subcommands_are_rejected() {
     assert!(try_parse(&["ws", "cache-push"]).is_err());
     assert!(try_parse(&["ws", "cache-pull"]).is_err());
     assert!(try_parse(&["ws", "script", "ci"]).is_err());
+}
+
+#[test]
+fn parse_run_affected() {
+    let cli = parse(&["run", "lint", "--affected", "--base", "main"]);
+    match cli.command {
+        rx::cli::Command::Run {
+            task,
+            affected,
+            base,
+            ..
+        } => {
+            assert_eq!(task.unwrap(), "lint");
+            assert!(affected);
+            assert_eq!(base, "main");
+        }
+        _ => panic!("expected Run"),
+    }
 }
