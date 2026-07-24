@@ -196,14 +196,6 @@ hello = "echo hi"
 }
 
 #[test]
-fn load_for_dir_missing_file_returns_defaults() {
-    let dir = TempDir::new().unwrap();
-    let config = rx::config::load_for_dir(dir.path()).unwrap();
-    assert_eq!(config.build.linker, "auto");
-    assert!(!config.build.cache);
-}
-
-#[test]
 fn init_config_creates_valid_file() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("rx.toml");
@@ -214,4 +206,92 @@ fn init_config_creates_valid_file() {
     assert_eq!(config.build.linker, "auto");
     assert!(!config.build.cache);
     assert_eq!(config.test.runner, "auto");
+}
+
+#[test]
+fn parse_tasks_string_shorthand() {
+    let toml_str = r#"
+[tasks]
+hello = "echo hi"
+"#;
+    let config: rx::config::RxConfig = toml::from_str(toml_str).unwrap();
+    let task = config.tasks.get("hello").unwrap();
+    assert_eq!(task.command().unwrap(), "echo hi");
+    assert!(task.depends_on().is_empty());
+}
+
+#[test]
+fn parse_tasks_full_form() {
+    let toml_str = r#"
+[tasks.fmt]
+command = "cargo fmt --all -- --check"
+
+[tasks.ci]
+depends-on = ["fmt", "lint"]
+"#;
+    let config: rx::config::RxConfig = toml::from_str(toml_str).unwrap();
+    let fmt = config.tasks.get("fmt").unwrap();
+    assert_eq!(fmt.command().unwrap(), "cargo fmt --all -- --check");
+    let ci = config.tasks.get("ci").unwrap();
+    assert!(ci.command().is_none());
+    assert_eq!(ci.depends_on(), ["fmt", "lint"]);
+}
+
+#[test]
+fn legacy_scripts_merge_into_tasks() {
+    let toml_str = r#"
+[scripts]
+hello = "echo legacy"
+shared = "echo from-scripts"
+
+[tasks]
+shared = "echo from-tasks"
+"#;
+    let config: rx::config::RxConfig = toml::from_str(toml_str).unwrap();
+    let tasks = config.resolved_tasks();
+    assert_eq!(
+        tasks.get("hello").unwrap().command().unwrap(),
+        "echo legacy"
+    );
+    // [tasks] wins on collisions
+    assert_eq!(
+        tasks.get("shared").unwrap().command().unwrap(),
+        "echo from-tasks"
+    );
+}
+
+#[test]
+fn tasks_merge_project_overrides_global() {
+    let toml_global = r#"
+[tasks]
+deploy = "echo global-deploy"
+lint-extra = "echo global-lint"
+"#;
+    let toml_project = r#"
+[tasks]
+deploy = "echo project-deploy"
+"#;
+    let global: rx::config::RxConfig = toml::from_str(toml_global).unwrap();
+    let project: rx::config::RxConfig = toml::from_str(toml_project).unwrap();
+    let merged = rx::config::merge(global, project);
+    assert_eq!(
+        merged.tasks.get("deploy").unwrap().command().unwrap(),
+        "echo project-deploy"
+    );
+    assert_eq!(
+        merged.tasks.get("lint-extra").unwrap().command().unwrap(),
+        "echo global-lint"
+    );
+}
+
+#[test]
+fn init_config_defines_ci_task() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("rx.toml");
+    rx::config::init_config(&path).unwrap();
+
+    let config = rx::config::load_from_path(&path).unwrap();
+    let ci = config.tasks.get("ci").unwrap();
+    assert!(ci.command().is_none());
+    assert_eq!(ci.depends_on(), ["fmt", "lint", "test", "build"]);
 }

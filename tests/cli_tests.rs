@@ -128,10 +128,32 @@ fn parse_graph() {
 }
 
 #[test]
-fn parse_run_with_passthrough_args() {
-    let cli = parse(&["run", "--", "--my-flag", "value"]);
+fn parse_run_task() {
+    let cli = parse(&["run", "ci"]);
     match cli.command {
-        rx::cli::Command::Run { args, .. } => {
+        rx::cli::Command::Run { task, args } => {
+            assert_eq!(task.unwrap(), "ci");
+            assert!(args.is_empty());
+        }
+        _ => panic!("expected Run"),
+    }
+}
+
+#[test]
+fn parse_run_lists_when_no_task() {
+    let cli = parse(&["run"]);
+    match cli.command {
+        rx::cli::Command::Run { task, .. } => assert!(task.is_none()),
+        _ => panic!("expected Run"),
+    }
+}
+
+#[test]
+fn parse_run_with_passthrough_args() {
+    let cli = parse(&["run", "hello", "--", "--my-flag", "value"]);
+    match cli.command {
+        rx::cli::Command::Run { task, args } => {
+            assert_eq!(task.unwrap(), "hello");
             assert_eq!(args, vec!["--my-flag", "value"]);
         }
         _ => panic!("expected Run"),
@@ -258,14 +280,13 @@ fn parse_ws_run() {
 }
 
 #[test]
-fn parse_ws_script_with_packages() {
-    let cli = parse(&["ws", "script", "ci", "--packages", "core,utils"]);
+fn parse_ws_exec() {
+    let cli = parse(&["ws", "exec", "echo", "hi"]);
     match cli.command {
-        rx::cli::Command::Ws(rx::cli::WsCommand::Script { name, packages }) => {
-            assert_eq!(name, "ci");
-            assert_eq!(packages, vec!["core", "utils"]);
+        rx::cli::Command::Ws(rx::cli::WsCommand::Exec { cmd }) => {
+            assert_eq!(cmd, vec!["echo", "hi"]);
         }
-        _ => panic!("expected Ws Script"),
+        _ => panic!("expected Ws Exec"),
     }
 }
 
@@ -273,24 +294,6 @@ fn parse_ws_script_with_packages() {
 fn parse_doctor() {
     let cli = parse(&["doctor"]);
     assert!(matches!(cli.command, rx::cli::Command::Doctor));
-}
-
-#[test]
-fn parse_script() {
-    let cli = parse(&["script", "ci"]);
-    match cli.command {
-        rx::cli::Command::Script { name } => assert_eq!(name.unwrap(), "ci"),
-        _ => panic!("expected Script"),
-    }
-}
-
-#[test]
-fn parse_script_list() {
-    let cli = parse(&["script"]);
-    match cli.command {
-        rx::cli::Command::Script { name } => assert!(name.is_none()),
-        _ => panic!("expected Script"),
-    }
 }
 
 #[test]
@@ -379,6 +382,7 @@ fn removed_commands_are_rejected() {
         "worker",
         "compat",
         "sandbox",
+        "script",
     ] {
         assert!(
             try_parse(&[cmd]).is_err(),
@@ -397,4 +401,5 @@ fn removed_cache_subcommands_are_rejected() {
 fn removed_ws_subcommands_are_rejected() {
     assert!(try_parse(&["ws", "cache-push"]).is_err());
     assert!(try_parse(&["ws", "cache-pull"]).is_err());
+    assert!(try_parse(&["ws", "script", "ci"]).is_err());
 }

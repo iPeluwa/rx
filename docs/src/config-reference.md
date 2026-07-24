@@ -30,15 +30,21 @@
 |---|---|---|---|
 | `extra_args` | string[] | `[]` | Extra rustfmt arguments |
 
-## `[scripts]`
+## `[tasks]`
 
-Key-value pairs of script names to shell commands:
+Named tasks for `rx run`. A task is a shell command (string shorthand), or a table with a `command` and/or `depends-on` list. Built-in tasks (`fmt`, `lint`, `test`, `build`, `check`, `ci`) are used for names you don't define; defining the name overrides the built-in.
 
 ```toml
-[scripts]
-ci = "cargo fmt --check && cargo clippy -- -D warnings && cargo test"
+[tasks]
 deploy = "cargo build --release && scp target/release/myapp server:/opt/"
+
+[tasks.ci]
+depends-on = ["fmt", "lint", "test", "build"]
 ```
+
+## `[scripts]` (deprecated)
+
+Legacy alias for `[tasks]`: entries are plain `name = "command"` pairs and are merged into the task table (`[tasks]` wins on name collisions).
 
 ## `[env]`
 

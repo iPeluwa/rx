@@ -41,15 +41,6 @@ Wave 3: [integration-tests]     # depends on api/cli
 
 All packages in a wave run concurrently. The next wave starts only after the current wave completes.
 
-## Running scripts
-
-```sh
-rx ws script ci                  # run "ci" script in each member
-rx ws script bench               # run "bench" script in each member
-```
-
-Runs a named script (defined in each member's `rx.toml`) across all workspace members. Members without the script are skipped.
-
 ## Running shell commands
 
 ```sh

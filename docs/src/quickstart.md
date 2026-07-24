@@ -36,14 +36,19 @@ rx test --affected             # only test packages your change touched
 Define project tasks once in `rx.toml`:
 
 ```toml
-[scripts]
-ci = "cargo fmt --check && cargo clippy -- -D warnings && cargo test"
+[tasks]
 bench = "cargo bench"
+
+[tasks.ci]
+depends-on = ["fmt", "lint", "test", "build"]
 ```
 
 Then run them locally or in CI:
 
 ```sh
-rx script ci
-rx script bench
+rx run ci          # runs fmt, lint, test, build through the task graph
+rx run bench
+rx run             # list all available tasks
 ```
+
+`fmt`, `lint`, `test`, `build`, and `check` are built-in tasks, so a `ci` pipeline needs no shell commands at all. Independent tasks run concurrently.

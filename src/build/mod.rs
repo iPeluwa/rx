@@ -165,22 +165,6 @@ fn find_project_root() -> Result<PathBuf> {
     }
 }
 
-/// Read the package name from Cargo.toml.
-fn package_name(project_root: &Path) -> Result<String> {
-    let contents =
-        fs::read_to_string(project_root.join("Cargo.toml")).context("failed to read Cargo.toml")?;
-    let table: toml::Table = toml::from_str(&contents).context("failed to parse Cargo.toml")?;
-    table
-        .get("package")
-        .and_then(|p| p.get("name"))
-        .and_then(|n| n.as_str())
-        .map(|s| s.to_string())
-        .context(
-            "could not read package name from Cargo.toml\n\
-             hint: ensure [package] section has a `name` field",
-        )
-}
-
 /// Collect final build artifacts from target/{profile}/.
 fn collect_artifacts(target_dir: &Path, profile: &str) -> Result<Vec<(String, PathBuf)>> {
     let out_dir = target_dir.join(profile);
@@ -337,79 +321,5 @@ pub fn build(
 
     crate::stats::record("build", start, true);
     timer.finish();
-    Ok(())
-}
-
-pub fn run(release: bool, args: &[String], config: &RxConfig) -> Result<()> {
-    let project_root = find_project_root()?;
-    let profile = if release { "release" } else { "debug" };
-    let flags = build_rustflags(config);
-    let flags_str = flags.as_deref();
-
-    // Try cache
-    let mut needs_build = true;
-    if config.build.cache {
-        let fingerprint = cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
-        if let Some(cached) = cache::lookup_build(&fingerprint)? {
-            let target_dir = project_root.join("target").join(profile);
-            let count = cache::restore_build(&cached, &target_dir)?;
-            crate::output::success(&format!("cache hit: restored {count} artifact(s)"));
-            needs_build = false;
-        }
-    }
-
-    if needs_build {
-        if let Some(linker) = resolve_linker(config) {
-            crate::output::step("build", &format!("using linker: {linker}"));
-        }
-
-        let mut cmd = cargo_cmd(config);
-        cmd.arg("build");
-        apply_jobs(&mut cmd, config);
-        if release {
-            cmd.arg("--release");
-        }
-        let status = cmd.status().context(
-            "failed to run cargo build\n\
-             hint: is cargo installed? run `rx doctor` to check",
-        )?;
-        if !status.success() {
-            anyhow::bail!("build failed");
-        }
-
-        if config.build.cache {
-            let fingerprint = cache::compute_build_fingerprint(&project_root, profile, flags_str)?;
-            let target_dir = project_root.join("target");
-            let artifacts = collect_artifacts(&target_dir, profile)?;
-            if !artifacts.is_empty() {
-                cache::store_build(&fingerprint, &artifacts)?;
-                crate::output::info(&format!(
-                    "cached {} artifact(s) for future builds",
-                    artifacts.len()
-                ));
-            }
-        }
-    }
-
-    // Run the binary directly
-    let pkg_name = package_name(&project_root)?;
-    let binary = project_root.join("target").join(profile).join(&pkg_name);
-
-    if !binary.exists() {
-        anyhow::bail!(
-            "binary not found at {}\n\
-             hint: does this project produce a binary? check [lib] vs [[bin]] in Cargo.toml",
-            binary.display()
-        );
-    }
-
-    let status = Command::new(&binary)
-        .args(args)
-        .status()
-        .with_context(|| format!("failed to run {}", binary.display()))?;
-
-    if !status.success() {
-        std::process::exit(status.code().unwrap_or(1));
-    }
     Ok(())
 }

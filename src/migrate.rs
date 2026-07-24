@@ -30,14 +30,18 @@ pub fn migrate() -> Result<()> {
     let contents = fs::read_to_string(&cargo_toml).context("failed to read Cargo.toml")?;
 
     // Detect workspace
-    let is_workspace = contents.contains("[workspace]");
-    if is_workspace {
+    if contents.contains("[workspace]") {
         crate::output::step("detect", "workspace project");
-        config.scripts.insert(
-            "ci".into(),
-            "cargo fmt --check && cargo clippy -- -D warnings && cargo test".into(),
-        );
     }
+
+    // Default ci task pipeline
+    config.tasks.insert(
+        "ci".into(),
+        crate::config::TaskDef::Full {
+            command: None,
+            depends_on: vec!["fmt".into(), "lint".into(), "test".into(), "build".into()],
+        },
+    );
 
     // Detect available linker
     if has_tool("mold") {
@@ -58,20 +62,23 @@ pub fn migrate() -> Result<()> {
     if cwd.join("Makefile").exists() || cwd.join("makefile").exists() {
         crate::output::step(
             "detect",
-            "Makefile found — consider migrating targets to [scripts]",
+            "Makefile found — consider migrating targets to [tasks]",
         );
     }
 
     if cwd.join("justfile").exists() {
         crate::output::step(
             "detect",
-            "justfile found — consider migrating recipes to [scripts]",
+            "justfile found — consider migrating recipes to [tasks]",
         );
     }
 
     // Detect common patterns from Cargo.toml
     if contents.contains("criterion") || contents.contains("[bench]") {
-        config.scripts.insert("bench".into(), "cargo bench".into());
+        config.tasks.insert(
+            "bench".into(),
+            crate::config::TaskDef::Command("cargo bench".into()),
+        );
         crate::output::step("detect", "benchmarks found");
     }
 

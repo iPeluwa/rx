@@ -9,7 +9,7 @@ CI failures you could have caught locally waste round-trips, and every project r
 ## What rx does
 
 - **One-command CI** — `rx ci` runs your full pipeline locally
-- **Task scripts** — define tasks once in `rx.toml`, run them anywhere with `rx script`
+- **Task runner** — define tasks once in `[tasks]` with `depends-on` pipelines, run them anywhere with `rx run`
 - **Affected-only testing** — `rx test --affected` tests only packages changed since a base ref
 - **Workspace orchestration** — dependency-aware parallel execution across members
 - **Unified commands** — `rx test` picks nextest when available, `rx lint` runs clippy strict, `rx fmt` runs rustfmt

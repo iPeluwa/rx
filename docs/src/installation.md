@@ -31,4 +31,4 @@ rx completions fish > ~/.config/fish/completions/rx.fish
 rx completions powershell >> $PROFILE
 ```
 
-Completions are context-aware — they include workspace members, installed targets, toolchains, and scripts.
+Completions are context-aware — they include workspace members, installed targets, and tasks.
