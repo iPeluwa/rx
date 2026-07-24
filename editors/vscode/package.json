@@ -1,7 +1,7 @@
 {
   "name": "rx-rust",
-  "displayName": "rx - Rust Toolchain Manager",
-  "description": "VS Code integration for rx, the fast unified Rust toolchain manager",
+  "displayName": "rx - Local CI for Rust",
+  "description": "VS Code integration for rx, the fast local CI and task runner for Rust workspaces",
   "version": "0.1.0",
   "publisher": "iPeluwa",
   "repository": {
@@ -29,11 +29,8 @@
       { "command": "rx.ci", "title": "rx: Run CI" },
       { "command": "rx.clean", "title": "rx: Clean" },
       { "command": "rx.doctor", "title": "rx: Doctor" },
-      { "command": "rx.insights", "title": "rx: Insights" },
-      { "command": "rx.deps", "title": "rx: Dependencies" },
-      { "command": "rx.coverage", "title": "rx: Coverage" },
-      { "command": "rx.watch", "title": "rx: Watch" },
-      { "command": "rx.run", "title": "rx: Run" }
+      { "command": "rx.graph", "title": "rx: Workspace Graph" },
+      { "command": "rx.run", "title": "rx: List Tasks" }
     ],
     "taskDefinitions": [
       {

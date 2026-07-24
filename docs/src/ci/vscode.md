@@ -17,7 +17,7 @@ The extension activates automatically when a workspace contains `Cargo.toml` or 
 
 ## Commands
 
-The extension provides 15 commands accessible from the Command Palette (Ctrl+Shift+P / Cmd+Shift+P):
+The extension provides commands accessible from the Command Palette (Ctrl+Shift+P / Cmd+Shift+P):
 
 | Command | Description |
 |---------|-------------|
@@ -31,7 +31,8 @@ The extension provides 15 commands accessible from the Command Palette (Ctrl+Shi
 | `rx: Run CI` | Run `rx ci` |
 | `rx: Clean` | Run `rx clean` |
 | `rx: Doctor` | Run `rx doctor` |
-| `rx: Run` | Run `rx run` |
+| `rx: Workspace Graph` | Run `rx graph` |
+| `rx: List Tasks` | Run `rx run` |
 
 ## Task provider
 

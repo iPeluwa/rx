@@ -71,7 +71,7 @@ jobs:
           $BIN lint --help || true
           $BIN check --help || true
           $BIN clean --help || true
-          $BIN pkg add --help || true
+          $BIN run --help || true
           $BIN ws --help || true
           $BIN cache status || true
           $BIN config || true
@@ -79,9 +79,9 @@ jobs:
           $BIN completions bash > /dev/null || true
           $BIN completions zsh > /dev/null || true
           $BIN completions fish > /dev/null || true
-          $BIN insights || true
-          $BIN tree --depth 2 || true
-          $BIN deps || true
+          $BIN run || true
+          $BIN graph || true
+          $BIN stats show || true
 
       # --- PGO: Step 3 - Merge profiles ---
       - name: Merge PGO profiles

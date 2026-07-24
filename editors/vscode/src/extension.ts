@@ -17,10 +17,7 @@ export function activate(context: vscode.ExtensionContext) {
         ['rx.ci', 'ci'],
         ['rx.clean', 'clean'],
         ['rx.doctor', 'doctor'],
-        ['rx.insights', 'insights'],
-        ['rx.deps', 'deps'],
-        ['rx.coverage', 'coverage'],
-        ['rx.watch', 'watch'],
+        ['rx.graph', 'graph'],
         ['rx.run', 'run'],
     ];
 
